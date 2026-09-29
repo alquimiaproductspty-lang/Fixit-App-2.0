@@ -1,13 +1,14 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Service } from '../types';
 import { compressImage } from '../lib/imageCompressor';
+import { db } from '../lib/firebase'; // <--- IMPORTACIÓN CRÍTICA PARA CONECTAR AL CEREBRO
+import { collection, query, where, getDocs } from 'firebase/firestore'; // <--- HERRAMIENTAS DE LECTURA
 import {
   ArrowLeft,
   ArrowRight,
   Camera,
   Trash2,
   Plus,
-  Info,
   RefreshCw,
   Calendar,
   Clock
@@ -36,35 +37,52 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [replaceIndex, setReplaceIndex] = useState<number | null>(null);
 
-  // --- NUEVO ESTADO PARA LA AGENDA ---
+  // Estados de la Agenda
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [bookedTimes, setBookedTimes] = useState<string[]>([]); // Aquí Firebase inyectará las horas ocupadas
+  const [bookedTimes, setBookedTimes] = useState<string[]>([]);
+  const [isLoadingTimes, setIsLoadingTimes] = useState(false); // Para mostrar que está cargando
 
-  // Generar los próximos 7 días laborables
   const upcomingDates = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
-    d.setDate(d.getDate() + i + 1); // Empezar desde mañana
+    d.setDate(d.getDate() + i + 1);
     return d;
   });
 
-  // Horarios de trabajo por defecto
   const availableTimes = ['08:00 AM', '10:00 AM', '12:00 PM', '02:00 PM', '04:00 PM'];
 
-  // Simulación de conexión a Firebase (Opción C)
+  // === MAGIA REAL: CONEXIÓN A FIRESTORE ===
   useEffect(() => {
     if (!selectedDate) return;
-    
-    // NOTA PARA EL DESARROLLADOR (TÚ):
-    // Aquí es donde haremos la consulta a Firestore Database en el futuro.
-    // Ejemplo: const querySnapshot = await getDocs(query(collection(db, 'citas'), where('fecha', '==', selectedDate)));
-    // Por ahora, simulamos que a veces las 10:00 AM están ocupadas para ver el efecto visual.
-    
-    setBookedTimes([]); // Reiniciamos horas ocupadas
-    if (selectedDate.getDate() % 2 === 0) {
-      setBookedTimes(['10:00 AM', '02:00 PM']); // Simula horas ocupadas en días pares
-    }
-  }, [selectedDate]);
+
+    const fetchBookedTimes = async () => {
+      setIsLoadingTimes(true);
+      setBookedTimes([]); // Limpiamos las horas previas
+      
+      try {
+        // Formateamos la fecha a YYYY-MM-DD para buscarla exacto en la base de datos
+        const year = selectedDate.getFullYear();
+        const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+        const day = String(selectedDate.getDate()).padStart(2, '0');
+        const dateString = `${year}-${month}-${day}`;
+
+        // Hacemos la pregunta a Firebase: "Tráeme todas las citas de este día"
+        const appointmentsRef = collection(db, 'appointments');
+        const q = query(appointmentsRef, where('date', '==', dateString));
+        const querySnapshot = await getDocs(q);
+
+        // Extraemos las horas de esas citas
+        const occupied = querySnapshot.docs.map(doc => doc.data().time);
+        setBookedTimes(occupied);
+      } catch (error) {
+        console.error("Error al buscar disponibilidad:", error);
+      } finally {
+        setIsLoadingTimes(false);
+      }
+    };
+
+    fetchBookedTimes();
+  }, [selectedDate]); // Se ejecuta cada vez que el cliente cambia de día
 
   const getDynamicPlaceholder = () => {
     const cat = (service.category || '').toLowerCase();
@@ -140,17 +158,21 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
     fileInputRef.current?.click();
   };
 
-  // --- MAGIA DE INYECCIÓN DE WHATSAPP ---
   const handleContinueWithAgenda = () => {
     let finalDescription = description;
     
-    // Si el usuario eligió fecha y hora, lo inyectamos ocultamente en la descripción
     if (selectedDate && selectedTime) {
       const dateOptions: Intl.DateTimeFormatOptions = { weekday: 'long', month: 'short', day: 'numeric' };
       const formattedDate = selectedDate.toLocaleDateString('es-PA', dateOptions);
-      const agendaInfo = `\n\n📅 *CITA SOLICITADA:*\nDía: ${formattedDate}\nHora: ${selectedTime}`;
       
-      // Limpiamos inyecciones anteriores si el usuario regresó y cambió la hora
+      // Formato YYYY-MM-DD oculto para que tú como admin lo copies fácil si es necesario
+      const year = selectedDate.getFullYear();
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedDate.getDate()).padStart(2, '0');
+      const systemDate = `${year}-${month}-${day}`;
+
+      const agendaInfo = `\n\n📅 *CITA SOLICITADA:*\nDía: ${formattedDate}\nHora: ${selectedTime}\n(Ref: ${systemDate})`;
+      
       const cleanDescription = description.split('\n\n📅 *CITA SOLICITADA:*')[0];
       finalDescription = cleanDescription + agendaInfo;
       
@@ -162,7 +184,6 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
 
   return (
     <div className="w-full max-w-xl mx-auto px-4 py-4 sm:py-6 space-y-5">
-      {/* Botón Volver y Pill de Precio */}
       <div className="flex items-center justify-between">
         <button
           onClick={onBack}
@@ -183,7 +204,6 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
 
       <div className="bg-[#FFFEFA] rounded-3xl p-5 sm:p-6 border border-[#DED4C5] shadow-xs space-y-7">
         
-        {/* --- NUEVA SECCIÓN DE AGENDA PREMIUM --- */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 border-b border-[#DED4C5]/60 pb-2">
             <Calendar className="w-5 h-5 text-[#0B72D9]" />
@@ -205,7 +225,7 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
                     key={idx}
                     onClick={() => {
                       setSelectedDate(date);
-                      setSelectedTime(null); // Resetear hora si cambia de día
+                      setSelectedTime(null);
                     }}
                     className={`snap-center shrink-0 flex flex-col items-center justify-center w-16 h-20 rounded-2xl border transition-all active:scale-95 ${
                       isSelected 
@@ -225,7 +245,7 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
             <div className="space-y-3 pt-2 animation-fade-in">
               <p className="text-xs text-[#756A5D] font-medium flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5" />
-                Horarios disponibles:
+                {isLoadingTimes ? 'Buscando disponibilidad...' : 'Horarios disponibles:'}
               </p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {availableTimes.map((time, idx) => {
@@ -235,7 +255,7 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
                   return (
                     <button
                       key={idx}
-                      disabled={isBooked}
+                      disabled={isBooked || isLoadingTimes}
                       onClick={() => setSelectedTime(time)}
                       className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all border ${
                         isBooked 
@@ -254,7 +274,6 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
           )}
         </div>
 
-        {/* SECCIÓN DE DESCRIPCIÓN */}
         <div className="space-y-2 pt-4 border-t border-[#DED4C5]/60">
           <div className="flex items-center justify-between">
             <h2 className="text-base sm:text-lg font-serif font-bold text-[#1F2421]">
@@ -266,7 +285,7 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
           </div>
           
           <textarea
-            value={description.split('\n\n📅 *CITA SOLICITADA:*')[0]} // Mostrar solo la parte escrita por el usuario
+            value={description.split('\n\n📅 *CITA SOLICITADA:*')[0]}
             onChange={(e) => onChangeDescription(e.target.value)}
             placeholder={getDynamicPlaceholder()}
             rows={3}
@@ -274,7 +293,6 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
           />
         </div>
 
-        {/* SECCIÓN DE FOTOGRAFÍAS */}
         <div className="space-y-3 pt-2 border-t border-[#DED4C5]/60">
           <div>
             <div className="flex items-center justify-between">
@@ -335,7 +353,6 @@ export const ProblemDetailStep: React.FC<ProblemDetailStepProps> = ({
           </div>
         </div>
 
-        {/* Botón Continuar Modificado */}
         <div className="pt-2">
           <button
             onClick={handleContinueWithAgenda}
