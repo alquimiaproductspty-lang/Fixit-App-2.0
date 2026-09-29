@@ -1,0 +1,20 @@
+<svg width="512" height="512" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Solid Brand Background -->
+  <rect width="100" height="100" rx="22" fill="#082D60" />
+  
+  <g transform="translate(50, 50) scale(0.72)">
+    <!-- Screwdriver (Top-Left to Bottom-Right, +45°) in Pure White -->
+    <g transform="rotate(45)">
+      <path d="M -37,-6 C -40.5,-6 -42.5,-4 -42.5,0 C -42.5,4 -40.5,6 -37,6 L -17,6 C -15.5,6 -15,4.5 -15,3.5 L -11.5,3.5 L -11.5,2.5 L -7.5,2.5 L -7.5,-2.5 L -11.5,-2.5 L -11.5,-3.5 C -15,-3.5 -15.5,-6 -17,-6 Z" fill="#FFFFFF" />
+      <path d="M 7.5,-2.5 L 31,-2.5 L 39,-1.5 L 39,1.5 L 31,2.5 L 7.5,2.5 Z" fill="#FFFFFF" />
+      <!-- Ergonomic grip ribs -->
+      <line x1="-35" y1="-2" x2="-21" y2="-2" stroke="#082D60" stroke-width="1.2" stroke-linecap="round" opacity="0.45" />
+      <line x1="-35" y1="2" x2="-21" y2="2" stroke="#082D60" stroke-width="1.2" stroke-linecap="round" opacity="0.45" />
+    </g>
+
+    <!-- Adjustable Wrench (Bottom-Left to Top-Right, -45°) in FIXIT Electric Blue -->
+    <g transform="rotate(-45)">
+      <path d="M -37,5 L 10,5 C 13,5 16,7.5 19,11 L 31,8.5 C 32.5,8 33,6.5 32,5 L 19,4.5 L 19,-3.5 L 32,-3.5 C 33.5,-3.5 34,-5 33,-6.5 L 29,-10.5 C 25.5,-13.5 19.5,-13 14,-9 L 10,-5 L -37,-5 C -40.5,-5 -42.5,-2.5 -42.5,0 C -42.5,2.5 -40.5,5 -37,5 Z M -31,-2.5 A 2.5 2.5 0 1 0 -31,2.5 A 2.5 2.5 0 1 0 -31,-2.5 Z M 12,-9 H 17.5 V -6.5 H 12 Z" fillRule="evenodd" clipRule="evenodd" fill="#0988F5" />
+    </g>
+  </g>
+</svg>

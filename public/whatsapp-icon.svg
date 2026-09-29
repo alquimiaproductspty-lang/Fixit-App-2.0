@@ -1,0 +1,55 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' width='512' height='512'>
+  <defs>
+    <!-- Sticker Drop Shadow -->
+    <filter id='sticker-shadow' x='-10%' y='-10%' width='130%' height='130%'>
+      <feDropShadow dx='8' dy='14' stdDeviation='6' flood-color='#000000' flood-opacity='0.42'/>
+    </filter>
+  </defs>
+
+  <!-- Shadow & Outer White Sticker Border -->
+  <rect x='34' y='30' width='444' height='444' rx='108' ry='108' fill='#FFFFFF' filter='url(#sticker-shadow)' />
+
+  <!-- Green App Icon Squircle Background -->
+  <rect x='48' y='44' width='416' height='416' rx='94' ry='94' fill='#25D366' />
+
+  <!-- White Speech Bubble with Tail -->
+  <path d='
+    M 256 116
+    C 178.68 116 116 178.68 116 256
+    C 116 281.82 122.95 306.03 135.08 326.88
+    L 121.2 378.8
+    C 119.5 385.2 125.2 390.9 131.6 389.2
+    L 183.52 375.32
+    C 204.37 387.45 228.58 394.4 256 394.4
+    C 333.32 394.4 396 331.72 396 256
+    C 396 178.68 333.32 116 256 116
+    Z
+  ' fill='#25D366' stroke='#FFFFFF' stroke-width='22' stroke-linejoin='round' stroke-linecap='round' />
+
+  <!-- Telephone Receiver Handset (Pure White, Official Angles & Dimensions) -->
+  <path d='
+    M 338.8 304.5
+    C 334.2 299.8 310.8 288.3 306.2 286.7
+    C 301.6 285.2 298.5 284.4 295.4 289.1
+    C 291.5 293.7 281.5 306.1 278.4 309.9
+    C 275.3 313 271.5 313.8 266.8 311.5
+    C 251.3 303.8 231.9 291.1 217.2 276.4
+    C 202.5 261.7 189.8 242.3 182.1 226.8
+    C 179.8 222.1 180.6 218.3 183.7 215.2
+    C 187.5 212.1 199.9 202.1 204.5 198.2
+    C 209.2 195.1 208.4 192 206.9 187.4
+    C 205.3 182.8 193.8 159.4 189.1 154.8
+    C 184.5 150.2 179.8 150.2 176 151
+    C 171.3 151 166.7 151.8 162 154.1
+    C 151.2 159.5 141.9 171.2 140.4 184.3
+    C 137.3 209.8 151.2 247.7 179 286.3
+    C 208.4 327.2 244.7 348 274.1 353.4
+    C 279.5 354.2 285.7 354.2 291.1 351.9
+    C 302.7 347.2 312 337.2 316.6 327.1
+    C 318.9 322.5 318.9 317.9 318.1 314
+    C 316.6 309.4 313.5 307.1 308.8 304.8
+    L 338.8 304.5
+    Z
+  ' fill='#FFFFFF'/>
+</svg>

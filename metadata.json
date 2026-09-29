@@ -1,0 +1,11 @@
+{
+  "name": "Remix FIXIT - Reparaciones Residenciales",
+  "description": "Servicios de plomería, electricidad y aire acondicionado residencial en Ciudad de Panamá con precios claros y técnicos propios.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

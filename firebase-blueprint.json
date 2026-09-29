@@ -1,0 +1,362 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Perfil de usuario y autorización en FIXIT",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "role": { "type": "string", "enum": ["ADMIN", "OPERATOR", "TECHNICIAN", "CLIENT", "customer"] },
+        "status": { "type": "string", "enum": ["activo", "inactivo", "ACTIVE", "INACTIVE", "active"] },
+        "city": { "type": "string", "maxLength": 100 },
+        "marketingOptIn": { "type": "boolean" },
+        "languagePreference": { "type": "string", "enum": ["es", "en"] },
+        "direccion": { "type": "string", "maxLength": 300 },
+        "notas": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["uid", "displayName", "email", "role", "status", "createdAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Registro de control de acceso de Administradores verificados",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "Ficha de servicio del catálogo central FIXIT",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 32 },
+        "category": { "type": "string", "maxLength": 80 },
+        "service_name": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 600 },
+        "price": { "type": "number" },
+        "pricing_type": { "type": "string", "enum": ["fixed", "per_unit", "from", "diagnostic"] },
+        "unit_name": { "type": "string", "maxLength": 30 },
+        "minimum_service_charge": { "type": "number" },
+        "is_evaluation_required": { "type": "boolean" },
+        "diagnostic_required": { "type": "boolean" },
+        "diagnostic_price": { "type": "number" },
+        "estimated_duration": { "type": "string", "maxLength": 50 },
+        "warranty_days": { "type": "number" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "category", "service_name", "price", "active"]
+    },
+    "ServiceRequest": {
+      "title": "ServiceRequest",
+      "description": "Solicitud y orden de servicio residencial FIXIT",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "codigo_seguimiento": { "type": "string", "maxLength": 32 },
+        "numero_pedido": { "type": "string", "maxLength": 32 },
+        "cliente": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "maxLength": 128 },
+            "nombre": { "type": "string", "maxLength": 100 },
+            "correo": { "type": "string", "maxLength": 150 },
+            "telefono": { "type": "string", "maxLength": 30 },
+            "acepta_terminos_fotos": { "type": "boolean" }
+          },
+          "required": ["nombre", "telefono"]
+        },
+        "creado_por_uid": { "type": "string", "maxLength": 128 },
+        "servicio_probable": { "type": "object" },
+        "clasificacion_ia": { "type": "object" },
+        "respuestas": { "type": "object" },
+        "direccion": { "type": "string", "maxLength": 400 },
+        "referencia": { "type": "string", "maxLength": 200 },
+        "tipo_propiedad": { "type": "string", "maxLength": 50 },
+        "horario_preferido": { "type": "string", "maxLength": 50 },
+        "precio_regular": { "type": "number" },
+        "descuento": { "type": "number" },
+        "precio_lanzamiento": { "type": "number" },
+        "estado": {
+          "type": "string",
+          "enum": [
+            "NUEVA",
+            "EN_REVISION",
+            "EVALUACION",
+            "COTIZACION",
+            "PENDIENTE_APROBACION",
+            "APROBADA",
+            "PENDIENTE_PAGO",
+            "PAGADA",
+            "ASIGNADA",
+            "PROGRAMADA",
+            "EN_PROCESO",
+            "COMPLETADA",
+            "CANCELADA",
+            "ARCHIVADA",
+            "Nueva",
+            "Solicitud recibida",
+            "En revisión / cotización",
+            "Técnico asignado",
+            "En camino",
+            "En sitio / en progreso",
+            "Completada",
+            "Cancelada",
+            "Archivada",
+            "Pendiente",
+            "Confirmado",
+            "Confirmada",
+            "En progreso",
+            "Completado",
+            "Cancelado",
+            "EN_CAMINO"
+          ]
+        },
+        "tecnico_id": { "type": "string", "maxLength": 128 },
+        "tecnico_asignado": { "type": "string", "maxLength": 100 },
+        "tecnico_nombre": { "type": "string", "maxLength": 100 },
+        "costo_inspeccion": { "type": "number" },
+        "cotizacion": { "type": "number" },
+        "total_facturado": { "type": "number" },
+        "costo_tecnico": { "type": "number" },
+        "costo_materiales": { "type": "number" },
+        "comision_fixit": { "type": "number" },
+        "utilidad_estimada": { "type": "number" },
+        "estado_pago": { "type": "string", "maxLength": 50 },
+        "metodo_pago": { "type": "string", "maxLength": 50 },
+        "notas_internas": { "type": "string", "maxLength": 2000 },
+        "imagenes": { "type": "array" },
+        "historial": { "type": "array" },
+        "fecha": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "isArchived": { "type": "boolean" },
+        "alerta_seguridad": { "type": "boolean" }
+      },
+      "required": ["codigo_seguimiento", "cliente", "direccion", "estado", "fecha"]
+    },
+    "Technician": {
+      "title": "Technician",
+      "description": "Técnico idóneo y proveedor de servicios FIXIT",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "nombre": { "type": "string", "maxLength": 100 },
+        "telefono": { "type": "string", "maxLength": 30 },
+        "correo": { "type": "string", "maxLength": 150 },
+        "activo": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["activo", "inactivo"] },
+        "especialidad": { "type": "string", "maxLength": 100 },
+        "especialidades": { "type": "array" },
+        "zona_cobertura": { "type": "string", "maxLength": 200 },
+        "tipo_relacion": { "type": "string", "enum": ["empleado", "proveedor", "contratista"] },
+        "tarifa_acordada": { "type": "string", "maxLength": 200 },
+        "tarifa_base_usd": { "type": "number" },
+        "servicios_asignados": { "type": "number" },
+        "servicios_completados": { "type": "number" },
+        "evaluacion_interna": { "type": "number" },
+        "documentacion": { "type": "string", "maxLength": 300 },
+        "notas": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "nombre", "telefono", "activo", "especialidad"]
+    },
+    "Quote": {
+      "title": "Quote",
+      "description": "Cotización formal de servicio FIXIT",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "numero_cotizacion": { "type": "string", "maxLength": 32 },
+        "solicitud_id": { "type": "string", "maxLength": 64 },
+        "solicitud_codigo": { "type": "string", "maxLength": 32 },
+        "cliente_nombre": { "type": "string", "maxLength": 100 },
+        "cliente_telefono": { "type": "string", "maxLength": 30 },
+        "cliente_uid": { "type": "string", "maxLength": 128 },
+        "servicio_nombre": { "type": "string", "maxLength": 120 },
+        "mano_de_obra": { "type": "number" },
+        "materiales": { "type": "number" },
+        "cargos_adicionales": { "type": "number" },
+        "descuento": { "type": "number" },
+        "total": { "type": "number" },
+        "items": { "type": "array" },
+        "fecha_creacion": { "type": "string" },
+        "fecha_vencimiento": { "type": "string" },
+        "estado": { "type": "string", "maxLength": 50 },
+        "terminos": { "type": "string", "maxLength": 1000 },
+        "notas_cliente": { "type": "string", "maxLength": 1000 },
+        "notas_internas": { "type": "string", "maxLength": 1000 },
+        "creado_por": { "type": "string", "maxLength": 100 },
+        "historial": { "type": "array" }
+      },
+      "required": ["numero_cotizacion", "solicitud_id", "cliente_nombre", "total", "estado"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Registro de pagos y transacciones FIXIT",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "solicitud_id": { "type": "string", "maxLength": 64 },
+        "solicitud_codigo": { "type": "string", "maxLength": 32 },
+        "cotizacion_id": { "type": "string", "maxLength": 64 },
+        "monto": { "type": "number" },
+        "metodo": { "type": "string", "maxLength": 50 },
+        "estado": { "type": "string", "maxLength": 50 },
+        "referencia_transaccion": { "type": "string", "maxLength": 100 },
+        "fecha": { "type": "string" },
+        "usuario_registro": { "type": "string", "maxLength": 100 },
+        "cliente_uid": { "type": "string", "maxLength": 128 },
+        "notas": { "type": "string", "maxLength": 1000 },
+        "comprobante_url": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["solicitud_id", "monto", "metodo", "estado", "fecha"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Registro de auditoría de operaciones administrativas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "timestamp": { "type": "string" },
+        "fecha": { "type": "string" },
+        "usuario": { "type": "string", "maxLength": 150 },
+        "usuario_nombre": { "type": "string", "maxLength": 100 },
+        "usuario_uid": { "type": "string", "maxLength": 128 },
+        "rol": { "type": "string", "maxLength": 50 },
+        "accion": { "type": "string", "maxLength": 100 },
+        "coleccion": { "type": "string", "maxLength": 50 },
+        "documento_id": { "type": "string", "maxLength": 100 },
+        "detalles": { "type": "object" }
+      },
+      "required": ["timestamp", "usuario", "accion", "coleccion", "documento_id"]
+    },
+    "TechnicianAssignment": {
+      "title": "TechnicianAssignment",
+      "description": "Asignación operativa de orden a técnico idóneo",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "tecnico_id": { "type": "string", "maxLength": 128 },
+        "tecnico_nombre": { "type": "string", "maxLength": 100 },
+        "tecnico_contacto": { "type": "string", "maxLength": 50 },
+        "tecnico_telefono": { "type": "string", "maxLength": 50 },
+        "solicitud_id": { "type": "string", "maxLength": 64 },
+        "solicitud_codigo": { "type": "string", "maxLength": 32 },
+        "fecha_asignacion": { "type": "string" },
+        "fecha_programada": { "type": "string" },
+        "fecha": { "type": "string" },
+        "estado": {
+          "type": "string",
+          "enum": ["ASIGNADA", "PROGRAMADA", "EN_CAMINO", "EN_PROCESO", "COMPLETADA", "CANCELADA"]
+        },
+        "notas": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["tecnico_id", "solicitud_id", "estado", "fecha_asignacion"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Notificación push y del sistema enviada al cliente",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "orderId": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 200 },
+        "body": { "type": "string", "maxLength": 1000 },
+        "type": { "type": "string", "enum": ["TECH_ASSIGNED", "STATUS_CHANGE", "ORDER_CREATED", "GENERAL"] },
+        "status": { "type": "string", "maxLength": 50 },
+        "read": { "type": "boolean" },
+        "data": { "type": "object" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "title", "body", "type", "createdAt"]
+    },
+    "FCMToken": {
+      "title": "FCMToken",
+      "description": "Token de registro FCM para notificaciones push web/móvil",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 256 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "token": { "type": "string", "maxLength": 500 },
+        "platform": { "type": "string", "maxLength": 50 },
+        "userAgent": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "token", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Perfiles y roles de usuarios (clientes, operadores, técnicos, administradores)"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Índice de administradores autorizados para control de acceso RBAC"
+    },
+    "/services/{serviceId}": {
+      "schema": "Service",
+      "description": "Catálogo central de servicios FIXIT con precios y modalidades"
+    },
+    "/requests/{requestId}": {
+      "schema": "ServiceRequest",
+      "description": "Solicitudes y pedidos de servicios residenciales con historial completo"
+    },
+    "/technicians/{technicianId}": {
+      "schema": "Technician",
+      "description": "Registro de técnicos y proveedores idóneos de FIXIT"
+    },
+    "/technician_assignments/{assignmentId}": {
+      "schema": "TechnicianAssignment",
+      "description": "Asignaciones operativas de órdenes a técnicos"
+    },
+    "/quotes/{quoteId}": {
+      "schema": "Quote",
+      "description": "Cotizaciones preparadas para solicitudes"
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Registro de pagos y transacciones confirmadas o pendientes"
+    },
+    "/counters/{counterId}": {
+      "schema": "object",
+      "description": "Contadores atómicos de consecutivos mensuales de pedidos (FIX-YYMM-####)"
+    },
+    "/fixers/{fixerId}": {
+      "schema": "Technician",
+      "description": "Directorio de fixers y técnicos idóneos de FIXIT"
+    },
+    "/orders/{orderId}": {
+      "schema": "ServiceRequest",
+      "description": "Pedidos de servicios residenciales con consecutivo FIX-YYMM-####"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Trazabilidad y auditoría de cambios administrativos"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Notificaciones de cambios de estado y asignación de técnicos"
+    },
+    "/fcm_tokens/{tokenId}": {
+      "schema": "FCMToken",
+      "description": "Tokens de dispositivos registrados para notificaciones FCM"
+    }
+  }
+}

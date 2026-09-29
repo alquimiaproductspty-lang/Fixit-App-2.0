@@ -1,0 +1,336 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Core Identity and Role Helpers (Zero-Trust ABAC)
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Role lookups
+    function hasUserDoc(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function getUserRole(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.role;
+    }
+
+    function isUserWithRole(uid, role) {
+      return hasUserDoc(uid) && getUserRole(uid) == role;
+    }
+
+    function isUserActive(uid) {
+      return !hasUserDoc(uid) || (
+        get(/databases/$(database)/documents/users/$(uid)).data.status != 'inactivo' &&
+        get(/databases/$(database)/documents/users/$(uid)).data.status != 'INACTIVE'
+      );
+    }
+
+    function isBootstrappedAdminEmail() {
+      return isSignedIn() && request.auth.token.email != null && (
+        request.auth.token.email.lower() == 'alquimiaproductspty@gmail.com' ||
+        request.auth.token.email.lower() == 'ricardog20852016@gmail.com'
+      );
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        isBootstrappedAdminEmail() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        isUserWithRole(request.auth.uid, 'ADMIN')
+      );
+    }
+
+    function isOperator() {
+      return isAdmin() || (
+        isSignedIn() &&
+        isUserActive(request.auth.uid) &&
+        isUserWithRole(request.auth.uid, 'OPERATOR')
+      );
+    }
+
+    function isTechnician() {
+      return isOperator() || (
+        isSignedIn() &&
+        isUserActive(request.auth.uid) &&
+        isUserWithRole(request.auth.uid, 'TECHNICIAN')
+      );
+    }
+
+    // =========================================================================
+    // Validation Blueprints
+    // =========================================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'role', 'status']) &&
+        data.uid is string && data.uid.size() <= 128 &&
+        data.displayName is string && data.displayName.size() <= 200 &&
+        data.email is string && data.email.size() <= 200 &&
+        data.role in ['ADMIN', 'OPERATOR', 'TECHNICIAN', 'CLIENT', 'customer'] &&
+        (data.status in ['activo', 'inactivo', 'ACTIVE', 'INACTIVE', 'active']);
+    }
+
+    function isValidServiceRequest(data) {
+      return data.keys().hasAll([
+        'codigo_seguimiento',
+        'cliente',
+        'direccion',
+        'estado',
+        'fecha'
+      ]) &&
+      data.codigo_seguimiento is string && data.codigo_seguimiento.size() <= 64 &&
+      data.direccion is string && data.direccion.size() <= 500 &&
+      data.estado in [
+        'NUEVA', 'EN_REVISION', 'EVALUACION', 'COTIZACION',
+        'PENDIENTE_APROBACION', 'APROBADA', 'PENDIENTE_PAGO', 'PAGADA',
+        'ASIGNADA', 'PROGRAMADA', 'EN_PROCESO', 'COMPLETADA', 'CANCELADA', 'ARCHIVADA',
+        // Backward-compat aliases
+        'Nueva', 'Solicitud recibida', 'En revisión / cotización', 'Técnico asignado',
+        'En camino', 'En sitio / en progreso', 'Completada', 'Cancelada', 'Archivada',
+        'Pendiente', 'Confirmado', 'Confirmada', 'En progreso', 'Completado', 'Cancelado',
+        'EN_CAMINO'
+      ] &&
+      data.cliente is map &&
+      data.cliente.nombre is string && data.cliente.nombre.size() <= 120 &&
+      data.cliente.telefono is string && data.cliente.telefono.size() <= 40;
+    }
+
+    // =========================================================================
+    // Connection health check doc (mandatory per Firebase skill)
+    // =========================================================================
+    match /test/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // Admins Index Collection
+    // =========================================================================
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // =========================================================================
+    // Users Profiles & Authorizations (PII Guarded)
+    // =========================================================================
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isOperator();
+      allow list: if isOperator();
+
+      // Creation:
+      // - Self-registering users can only create CLIENT role with status 'activo'
+      // - Operators can register CLIENT or TECHNICIAN
+      // - Only Admins can register ADMIN or OPERATOR
+      allow create: if isValidId(userId) && isValidUser(request.resource.data) && (
+        (isOwner(userId) && (request.resource.data.role in ['CLIENT', 'customer']) && (request.resource.data.status in ['activo', 'ACTIVE', 'active'])) ||
+        (isAdmin()) ||
+        (isOperator() && request.resource.data.role in ['CLIENT', 'TECHNICIAN', 'customer'])
+      );
+
+      // Updates:
+      // - Owner can edit profile fields (name, phone, language, address, photo), but NEVER role or status
+      // - Operator can update notes and contact details for non-admin users
+      // - Admin can update any user, role, or status
+      allow update: if isValidUser(request.resource.data) && (
+        (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'phone', 'photoURL', 'languagePreference', 'direccion', 'city', 'marketingOptIn', 'updatedAt', 'lastLoginAt',
+          'fcmToken', 'fcmTokens', 'notificationsEnabled', 'lastFcmTokenAt'
+        ])) ||
+        (isAdmin()) ||
+        (isOperator() && resource.data.role != 'ADMIN' && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'phone', 'direccion', 'city', 'notas', 'status', 'updatedAt'
+        ]))
+      );
+
+      // Deletion: Strictly reserved to ADMIN
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // Service Requests & Orders
+    // =========================================================================
+    match /requests/{requestId} {
+      // Read access:
+      // - Operators & Admins can read all
+      // - Technicians can read requests assigned to them
+      // - Clients can read requests they created
+      allow get: if isOperator() || (
+        isSignedIn() && (
+          resource.data.creado_por_uid == request.auth.uid ||
+          resource.data.tecnico_id == request.auth.uid ||
+          (hasUserDoc(request.auth.uid) && resource.data.tecnico_asignado == getUserRole(request.auth.uid))
+        )
+      );
+
+      // List query enforcement:
+      allow list: if isOperator() || (
+        isSignedIn() && (
+          resource.data.creado_por_uid == request.auth.uid ||
+          resource.data.tecnico_id == request.auth.uid
+        )
+      );
+
+      // Creation: any authenticated user (their own UID) or guest creation validated
+      allow create: if isValidId(requestId) && (
+        isAdmin() ||
+        isOperator() ||
+        (isValidServiceRequest(request.resource.data) && (
+          !isSignedIn() ||
+          request.resource.data.creado_por_uid == request.auth.uid
+        ))
+      );
+
+      // Updates:
+      // - Admin: can update any fields
+      // - Operator: can update operational fields, quotes, technicians, notes, archive
+      // - Technician: can ONLY update execution status and notes/evidences if assigned to them
+      allow update: if (isAdmin() || isValidServiceRequest(request.resource.data)) && (
+        isAdmin() ||
+        (isOperator() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['creado_por_uid', 'id'])) ||
+        (isTechnician() && (resource.data.tecnico_id == request.auth.uid) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'estado', 'notas_internas', 'historial', 'updatedAt'
+          ]) &&
+          request.resource.data.estado in [
+            'ASIGNADA', 'PROGRAMADA', 'EN_PROCESO', 'COMPLETADA',
+            'Técnico asignado', 'En camino', 'En sitio / en progreso', 'Completada', 'Completado', 'Cancelada', 'Cancelado'
+          ]
+        )
+      );
+
+      // Permanent deletion: strictly ADMIN
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // Services Catalog (Public Read, Operator/Admin Managed)
+    // =========================================================================
+    match /services/{serviceId} {
+      allow read: if true;
+      allow write: if isOperator();
+    }
+
+    // =========================================================================
+    // Technicians & Providers Directory
+    // =========================================================================
+    match /technicians/{technicianId} {
+      allow read: if isSignedIn();
+      allow write: if isOperator();
+    }
+
+    // =========================================================================
+    // Operational Technician Assignments
+    // =========================================================================
+    match /technician_assignments/{assignmentId} {
+      // Technicians can read their own assignments; operators/admins can read all
+      allow get: if isOperator() || (isSignedIn() && resource.data.tecnico_id == request.auth.uid);
+      allow list: if isOperator() || (isSignedIn() && resource.data.tecnico_id == request.auth.uid);
+
+      // Creation: Operators and Admins only
+      allow create: if isOperator();
+
+      // Updates:
+      // - Operator/Admin can update all assignment details
+      // - Assigned Technician can only update execution status & notes
+      allow update: if isOperator() || (
+        isTechnician() && 
+        resource.data.tecnico_id == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'notas', 'updatedAt']) &&
+        request.resource.data.estado in ['ASIGNADA', 'PROGRAMADA', 'EN_CAMINO', 'EN_PROCESO', 'COMPLETADA', 'CANCELADA']
+      );
+
+      // Deletion: Admin only
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // Formal Quotes
+    // =========================================================================
+    match /quotes/{quoteId} {
+      allow get: if isOperator() || (isSignedIn() && resource.data.cliente_uid == request.auth.uid);
+      allow list: if isOperator() || (isSignedIn() && resource.data.cliente_uid == request.auth.uid);
+      allow write: if isOperator();
+    }
+
+    // =========================================================================
+    // Payments & Transactions
+    // =========================================================================
+    match /payments/{paymentId} {
+      allow get: if isOperator() || (isSignedIn() && resource.data.cliente_uid == request.auth.uid);
+      allow list: if isOperator() || (isSignedIn() && resource.data.cliente_uid == request.auth.uid);
+      allow write: if isOperator();
+    }
+
+    // =========================================================================
+    // Counters (Atomic Monthly Sequence FIX-YYMM-####)
+    // =========================================================================
+    match /counters/{counterId} {
+      allow read, write: if true;
+    }
+
+    // =========================================================================
+    // Fixers Directory (alias / mirror of technicians)
+    // =========================================================================
+    match /fixers/{fixerId} {
+      allow read: if isSignedIn();
+      allow write: if isOperator();
+    }
+
+    // =========================================================================
+    // Orders (alias / mirror of requests)
+    // =========================================================================
+    match /orders/{orderId} {
+      allow read: if isOperator() || (isSignedIn() && (resource.data.creado_por_uid == request.auth.uid || resource.data.cliente.id == request.auth.uid));
+      allow create: if true;
+      allow update: if isOperator() || (isSignedIn() && resource.data.creado_por_uid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // Audit Logs
+    // =========================================================================
+    match /audit_logs/{logId} {
+      allow read: if isOperator();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // Notifications (Push & In-App Status Updates)
+    // =========================================================================
+    match /notifications/{notificationId} {
+      allow get: if isOperator() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isOperator() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isOperator() || isSignedIn();
+      allow update: if isOperator() || (isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt', 'updatedAt']));
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // =========================================================================
+    // FCM Device Tokens
+    // =========================================================================
+    match /fcm_tokens/{tokenId} {
+      allow read: if isOperator() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create, update: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isOperator());
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+  }
+}
