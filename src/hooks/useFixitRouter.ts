@@ -12,8 +12,8 @@ export type FixitRoute =
 
 export type NavigationDirection = 'forward' | 'back' | 'none';
 
-export function parseHash(hash: string): FixitRoute {
-  const clean = hash.replace(/^#\/?/, '');
+export function parsePath(path: string): FixitRoute {
+  const clean = path.replace(/^\/+/, '');
   if (!clean || clean === 'home') {
     return { step: 'home' };
   }
@@ -45,74 +45,49 @@ export function parseHash(hash: string): FixitRoute {
   return { step: 'home' };
 }
 
-export function routeToHash(route: FixitRoute): string {
+export function routeToPath(route: FixitRoute): string {
   switch (route.step) {
-    case 'home':
-      return '';
-    case 'login':
-      return 'login';
-    case 'register':
-      return 'register';
-    case 'admin':
-      return 'admin';
-    case 'category':
-      return `category/${encodeURIComponent(route.categoryId)}`;
-    case 'service':
-      return `service/${encodeURIComponent(route.serviceId)}`;
-    case 'detail':
-      return `detail/${encodeURIComponent(route.serviceId)}`;
-    case 'summary':
-      return `summary/${encodeURIComponent(route.serviceId)}`;
+    case 'home': return '';
+    case 'login': return 'login';
+    case 'register': return 'register';
+    case 'admin': return 'admin';
+    case 'category': return `category/${encodeURIComponent(route.categoryId)}`;
+    case 'service': return `service/${encodeURIComponent(route.serviceId)}`;
+    case 'detail': return `detail/${encodeURIComponent(route.serviceId)}`;
+    case 'summary': return `summary/${encodeURIComponent(route.serviceId)}`;
   }
 }
 
 export function routeToKey(route: FixitRoute): string {
   switch (route.step) {
-    case 'home':
-      return 'home';
-    case 'login':
-      return 'login';
-    case 'register':
-      return 'register';
-    case 'admin':
-      return 'admin';
-    case 'category':
-      return `category:${route.categoryId}`;
-    case 'service':
-      return `service:${route.serviceId}`;
-    case 'detail':
-      return `detail:${route.serviceId}`;
-    case 'summary':
-      return `summary:${route.serviceId}`;
+    case 'home': return 'home';
+    case 'login': return 'login';
+    case 'register': return 'register';
+    case 'admin': return 'admin';
+    case 'category': return `category:${route.categoryId}`;
+    case 'service': return `service:${route.serviceId}`;
+    case 'detail': return `detail:${route.serviceId}`;
+    case 'summary': return `summary:${route.serviceId}`;
   }
 }
 
 export function getParentRoute(route: FixitRoute, fallbackCategory?: string): FixitRoute {
   switch (route.step) {
-    case 'summary':
-      return { step: 'detail', serviceId: route.serviceId };
-    case 'detail':
-      return { step: 'service', serviceId: route.serviceId };
+    case 'summary': return { step: 'detail', serviceId: route.serviceId };
+    case 'detail': return { step: 'service', serviceId: route.serviceId };
     case 'service':
       if (fallbackCategory) {
         return { step: 'category', categoryId: fallbackCategory.toLowerCase().replace(/\s+/g, '-') };
       }
       return { step: 'home' };
-    case 'category':
-      return { step: 'home' };
-    case 'register':
-      return { step: 'login' };
-    case 'admin':
-      return { step: 'home' };
+    case 'category': return { step: 'home' };
+    case 'register': return { step: 'login' };
+    case 'admin': return { step: 'home' };
     case 'login':
-    default:
-      return { step: 'home' };
+    default: return { step: 'home' };
   }
 }
 
-/**
- * Universal scroll-to-top handler for explicit programmatic resets
- */
 export function scrollGlobalToTop() {
   if (typeof window === 'undefined') return;
   try {
@@ -124,7 +99,7 @@ export function scrollGlobalToTop() {
 
 export function useFixitRouter() {
   const [currentRoute, setCurrentRoute] = useState<FixitRoute>(() => {
-    return parseHash(typeof window !== 'undefined' ? window.location.hash : '');
+    return parsePath(typeof window !== 'undefined' ? window.location.pathname : '');
   });
 
   const currentRouteRef = useRef<FixitRoute>(currentRoute);
@@ -132,26 +107,22 @@ export function useFixitRouter() {
 
   const historyIndexRef = useRef<number>(0);
 
-  // 1. Setup history state and disable native browser scroll restoration
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // Use manual scroll restoration so the browser does not jump or restore stale scroll
     if ('scrollRestoration' in window.history) {
-      try {
-        window.history.scrollRestoration = 'manual';
-      } catch {}
+      try { window.history.scrollRestoration = 'manual'; } catch {}
     }
 
     const state = window.history.state;
     if (state && typeof state.fixitIdx === 'number') {
       historyIndexRef.current = state.fixitIdx;
     } else {
-      const initialRoute = parseHash(window.location.hash);
-      const hash = routeToHash(initialRoute);
-      const targetHash = hash ? `#${hash}` : '#/';
+      const initialRoute = parsePath(window.location.pathname);
+      const pathStr = routeToPath(initialRoute);
+      const targetPath = pathStr ? `/${pathStr}` : '/';
       try {
-        window.history.replaceState({ route: initialRoute, fixitIdx: 0 }, '', targetHash);
+        window.history.replaceState({ route: initialRoute, fixitIdx: 0 }, '', targetPath);
       } catch {}
       historyIndexRef.current = 0;
     }
@@ -160,7 +131,7 @@ export function useFixitRouter() {
       const prevIdx = historyIndexRef.current;
       const targetRoute = (event.state && event.state.route) 
         ? event.state.route 
-        : parseHash(window.location.hash);
+        : parsePath(window.location.pathname);
 
       const targetIdx = (event.state && typeof event.state.fixitIdx === 'number')
         ? event.state.fixitIdx
@@ -171,39 +142,26 @@ export function useFixitRouter() {
     };
 
     window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // 2. Synchronous scroll to top before browser paint on any route change:
-  // completely eliminates any flicker, flash, or jump
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return;
-    try {
-      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-    } catch {
-      window.scrollTo(0, 0);
-    }
+    try { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch { window.scrollTo(0, 0); }
   }, [currentRoute]);
 
   const navigate = useCallback((route: FixitRoute, replace = false) => {
-    const hash = routeToHash(route);
-    const targetHash = hash ? `#${hash}` : '#/';
+    const pathStr = routeToPath(route);
+    const targetPath = pathStr ? `/${pathStr}` : '/';
 
     let nextIdx = historyIndexRef.current;
     if (replace) {
-      try {
-        window.history.replaceState({ route, fixitIdx: nextIdx }, '', targetHash);
-      } catch {}
+      try { window.history.replaceState({ route, fixitIdx: nextIdx }, '', targetPath); } catch {}
     } else {
       nextIdx = historyIndexRef.current + 1;
       historyIndexRef.current = nextIdx;
-      try {
-        window.history.pushState({ route, fixitIdx: nextIdx }, '', targetHash);
-      } catch {}
+      try { window.history.pushState({ route, fixitIdx: nextIdx }, '', targetPath); } catch {}
     }
-
     setCurrentRoute(route);
   }, []);
 
@@ -217,10 +175,5 @@ export function useFixitRouter() {
     }
   }, [navigate]);
 
-  return {
-    currentRoute,
-    navigate,
-    goBack,
-    isBackNav: false,
-  };
+  return { currentRoute, navigate, goBack, isBackNav: false };
 }
