@@ -8,7 +8,9 @@ import {
   doc, 
   updateDoc, 
   deleteDoc,
-  serverTimestamp 
+  serverTimestamp,
+  where,
+  getDocs
 } from 'firebase/firestore';
 import { db, auth, AuthState } from '../lib/firebase';
 import { getNextMonthlyOrderNumber } from '../lib/orderConsecutive';
@@ -105,7 +107,6 @@ interface AdminDashboardViewProps {
   onGoHome: () => void;
 }
 
-// Initial qualified fixers for quick display or auto-seeding
 export const DEFAULT_INITIAL_FIXERS: AdminFixer[] = [
   {
     id: 'FIXER-PTY-001',
@@ -160,20 +161,17 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const user = authState.user;
   const isAdmin = user?.isAdmin || user?.role === 'ADMIN';
 
-  // 1. SEGURIDAD Y ACCESO: Validar que únicamente usuarios con role === 'ADMIN' o isAdmin === true puedan acceder
   useEffect(() => {
     if (!authState.loading && !isAdmin) {
       onGoHome();
     }
   }, [authState.loading, isAdmin, onGoHome]);
 
-  // Tab State: [Resumen y KPIs] | [Pedidos] | [Clientes] | [Fixers]
-  const [activeTab, setActiveTab] = useState<'kpis' | 'orders' | 'clients' | 'fixers'>('kpis');
+  // Tab State: [Resumen y KPIs] | [Pedidos] | [Clientes] | [Fixers] | [Agenda]
+  const [activeTab, setActiveTab] = useState<'kpis' | 'orders' | 'clients' | 'fixers' | 'agenda'>('kpis');
 
-  // Fixers view mode: Cards or Table
   const [fixerViewMode, setFixerViewMode] = useState<'cards' | 'table'>('cards');
 
-  // Real-time Firestore states
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [clients, setClients] = useState<AdminUser[]>([]);
   const [fixers, setFixers] = useState<AdminFixer[]>([]);
@@ -181,13 +179,11 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [loadingClients, setLoadingClients] = useState(true);
   const [loadingFixers, setLoadingFixers] = useState(true);
 
-  // Search & Filters
   const [clientSearch, setClientSearch] = useState('');
   const [orderSearch, setOrderSearch] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
   const [fixerFilter, setFixerFilter] = useState('all');
 
-  // Modal State for New Fixer
   const [isAddFixerModalOpen, setIsAddFixerModalOpen] = useState(false);
   const [newFixerName, setNewFixerName] = useState('');
   const [newFixerPhone, setNewFixerPhone] = useState('');
@@ -197,11 +193,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [savingFixer, setSavingFixer] = useState(false);
   const [isSeedingFixers, setIsSeedingFixers] = useState(false);
 
-  // Modal State for Deleting Fixer
   const [fixerToDelete, setFixerToDelete] = useState<AdminFixer | null>(null);
   const [isDeletingFixer, setIsDeletingFixer] = useState(false);
 
-  // Modal State for Manual Order Creation
   const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
   const [manualClientName, setManualClientName] = useState('');
   const [manualClientPhone, setManualClientPhone] = useState('');
@@ -217,16 +211,20 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [manualNotes, setManualNotes] = useState('');
   const [savingManualOrder, setSavingManualOrder] = useState(false);
 
-  // Modal State for Order Management (Cancel / Delete)
   const [orderToManage, setOrderToManage] = useState<AdminOrder | null>(null);
   const [isActionInProgress, setIsActionInProgress] = useState(false);
 
-  // Consecutive Live Generator Preview & Test State
   const [nextConsecutivePreview, setNextConsecutivePreview] = useState<string>('');
   const [isGeneratingConsecutive, setIsGeneratingConsecutive] = useState(false);
 
-  // Toast Notification state
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  // === NUEVOS ESTADOS PARA AGENDA MAESTRA ===
+  const [agendaDate, setAgendaDate] = useState<string>('');
+  const [agendaTime, setAgendaTime] = useState<string>('08:00 AM');
+  const [agendaClientInfo, setAgendaClientInfo] = useState<string>('');
+  const [isSavingAppointment, setIsSavingAppointment] = useState(false);
+  const [appointmentsList, setAppointmentsList] = useState<any[]>([]);
 
   const showToast = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToast({ text, type });
@@ -235,7 +233,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }, 4500);
   };
 
-  // 1. Subscribe to Orders in real time (from 'requests' and 'orders')
   useEffect(() => {
     let unsubRequests: (() => void) | null = null;
     try {
@@ -266,7 +263,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     };
   }, []);
 
-  // 2. Subscribe to Users in real time (Clientes registrados en colección 'users')
   useEffect(() => {
     let unsubUsers: (() => void) | null = null;
     try {
@@ -280,7 +276,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             fetched.push({ id: d.id, uid: data.uid || d.id, ...data });
           }
         });
-        // Orden descendente por fecha de registro
         fetched.sort((a, b) => {
           const tA = a.createdAt?.toMillis?.() || (a.createdAt ? new Date(a.createdAt).getTime() : 0);
           const tB = b.createdAt?.toMillis?.() || (b.createdAt ? new Date(b.createdAt).getTime() : 0);
@@ -301,7 +296,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     };
   }, []);
 
-  // 3. Subscribe to Fixers (técnicos) in real time
   useEffect(() => {
     let unsubFixers: (() => void) | null = null;
     try {
@@ -366,7 +360,30 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     };
   }, []);
 
-  // 2. TARJETAS DE MÉTRICAS SUPERIORES (KPIs EN TIEMPO REAL)
+  // Cargar Citas Agendadas
+  useEffect(() => {
+    if (activeTab !== 'agenda') return;
+    
+    let unsubAgenda: (() => void) | null = null;
+    try {
+      const q = query(collection(db, 'appointments'), orderBy('date', 'desc'));
+      unsubAgenda = onSnapshot(q, (snapshot) => {
+        const fetched: any[] = [];
+        snapshot.forEach((d) => {
+          fetched.push({ id: d.id, ...d.data() });
+        });
+        setAppointmentsList(fetched);
+      });
+    } catch (err) {
+      console.error("Error cargando agenda:", err);
+    }
+    
+    return () => {
+      if (unsubAgenda) unsubAgenda();
+    };
+  }, [activeTab]);
+
+
   const totalOrdersCount = orders.length;
 
   const totalRevenue = useMemo(() => {
@@ -383,7 +400,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const totalClientsCount = clients.length;
   const totalFixersCount = fixers.length;
 
-  // Filtros
   const filteredClients = useMemo(() => {
     if (!clientSearch.trim()) return clients;
     const term = clientSearch.toLowerCase();
@@ -424,7 +440,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     return fixers.filter((f) => f.especialidad.toLowerCase().includes(fixerFilter.toLowerCase()));
   }, [fixers, fixerFilter]);
 
-  // Exportar Clientes a CSV
   const handleExportClientsCSV = () => {
     if (clients.length === 0) {
       alert('No hay clientes registrados para exportar.');
@@ -461,7 +476,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // Enlace seguro de WhatsApp (+507)
   const getWhatsAppLink = (phone?: string, text?: string) => {
     if (!phone) return '#';
     let clean = phone.replace(/\D/g, '');
@@ -472,7 +486,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     return `https://wa.me/${clean}${message}`;
   };
 
-  // 1. Registro de nuevo Fixer en Firestore
   const handleCreateFixer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFixerName.trim()) return;
@@ -516,7 +529,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
-  // 1. GESTIÓN DE FIXERS: Confirmar eliminación de Fixer
   const handleConfirmDeleteFixer = async () => {
     if (!fixerToDelete) return;
     setIsDeletingFixer(true);
@@ -536,7 +548,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
-  // Persistir técnicos idóneos en Firestore
   const handleSeedDefaultFixers = async () => {
     setIsSeedingFixers(true);
     try {
@@ -573,7 +584,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
-  // 2. GESTIÓN MANUAL DE PEDIDOS (CREACIÓN EXTERNA)
   const handleCatalogServiceChange = (serviceId: string) => {
     setManualSelectedCatalogId(serviceId);
     if (serviceId === 'custom') {
@@ -606,7 +616,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
     setSavingManualOrder(true);
     try {
-      // 1. Obtener consecutivo atómico mensual FIX-YYMM-####
       const monthlyConsecutive = await getNextMonthlyOrderNumber();
       const orderDocId = `REQ-${Date.now().toString().slice(-6)}`;
 
@@ -677,7 +686,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       showToast(`¡Pedido ${monthlyConsecutive} creado con éxito!`, 'success');
       setIsCreateOrderModalOpen(false);
 
-      // Reset Form
       setManualClientName('');
       setManualClientPhone('');
       setManualClientEmail('');
@@ -698,7 +706,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
-  // 3. CANCELACIÓN Y ELIMINACIÓN DE PEDIDOS: Cancelar Pedido (marcar 'Cancelado')
   const handleConfirmCancelOrder = async () => {
     if (!orderToManage) return;
     setIsActionInProgress(true);
@@ -724,7 +731,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
-  // 3. CANCELACIÓN Y ELIMINACIÓN DE PEDIDOS: Eliminar Registro Definitivo (deleteDoc)
   const handleConfirmDeleteOrder = async () => {
     if (!orderToManage) return;
     setIsActionInProgress(true);
@@ -746,7 +752,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
-  // Simulador de consecutivo atómico mensual
   const handleTestGenerateConsecutive = async () => {
     setIsGeneratingConsecutive(true);
     try {
@@ -759,7 +764,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
-  // Actualizador rápido de estado de orden
   const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
     try {
       const updateData = {
@@ -774,6 +778,61 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     } catch (err: any) {
       console.error('[Admin] Error actualizando estado:', err);
       showToast(`Error actualizando estado: ${err.message || 'Error'}`, 'error');
+    }
+  };
+
+  // === FUNCIONES DE AGENDA MAESTRA ===
+  const handleCreateAppointment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agendaDate || !agendaTime) {
+      showToast('Por favor, selecciona fecha y hora.', 'error');
+      return;
+    }
+
+    setIsSavingAppointment(true);
+    try {
+      // Validar si la hora ya está ocupada
+      const q = query(
+        collection(db, 'appointments'),
+        where('date', '==', agendaDate),
+        where('time', '==', agendaTime)
+      );
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        showToast('Ese horario ya está ocupado en la fecha seleccionada.', 'error');
+        setIsSavingAppointment(false);
+        return;
+      }
+
+      const docId = `APP-${Date.now()}`;
+      await setDoc(doc(db, 'appointments', docId), {
+        date: agendaDate,
+        time: agendaTime,
+        clientInfo: agendaClientInfo.trim() || 'Cita Reservada',
+        createdAt: serverTimestamp()
+      });
+
+      showToast(`Horario ${agendaTime} bloqueado exitosamente para el ${agendaDate}`, 'success');
+      setAgendaClientInfo('');
+      // No reseteamos fecha/hora para que pueda bloquear varias si quiere
+    } catch (err: any) {
+      console.error("Error al agendar cita:", err);
+      showToast('Error al bloquear horario.', 'error');
+    } finally {
+      setIsSavingAppointment(false);
+    }
+  };
+
+  const handleDeleteAppointment = async (id: string) => {
+    if (!window.confirm('¿Liberar este horario? Volverá a estar disponible para el público.')) return;
+    
+    try {
+      await deleteDoc(doc(db, 'appointments', id));
+      showToast('Horario liberado exitosamente.', 'success');
+    } catch (err) {
+      console.error("Error borrando cita:", err);
+      showToast('Error al liberar horario.', 'error');
     }
   };
 
@@ -873,9 +932,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         </div>
       </header>
 
-      {/* 2. TARJETAS DE MÉTRICAS SUPERIORES (KPIs EN TIEMPO REAL) */}
+      {/* TARJETAS DE MÉTRICAS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Órdenes Totales */}
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[#756A5D]">Órdenes Totales</span>
@@ -895,7 +953,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           <p className="text-[11px] text-[#756A5D]">Colección 'orders' & 'requests'</p>
         </div>
 
-        {/* Facturación Total ($ USD) con formato $XX,XXX.XX */}
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[#756A5D]">Facturación Total</span>
@@ -912,7 +969,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           <p className="text-[11px] text-[#756A5D]">Ingresos de órdenes no canceladas</p>
         </div>
 
-        {/* Total Clientes */}
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[#756A5D]">Total Clientes</span>
@@ -929,7 +985,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           <p className="text-[11px] text-[#756A5D]">Colección 'users' (clientes)</p>
         </div>
 
-        {/* Total Fixers */}
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[#756A5D]">Total Fixers</span>
@@ -947,25 +1002,30 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Navigation Tabs: [Resumen y KPIs] | [Pedidos] | [Clientes] | [Fixers] */}
+      {/* Navigation Tabs */}
       <div className="flex items-center gap-1.5 p-1 bg-[#DED4C5]/40 rounded-2xl w-full sm:w-auto overflow-x-auto">
         <button
           onClick={() => setActiveTab('kpis')}
           className={`flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'kpis'
-              ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs'
-              : 'text-[#756A5D] hover:text-[#1F2421]'
+            activeTab === 'kpis' ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
           }`}
         >
           <TrendingUp className="w-4 h-4" />
           <span>Resumen y KPIs</span>
         </button>
         <button
+          onClick={() => setActiveTab('agenda')}
+          className={`flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+            activeTab === 'agenda' ? 'bg-[#0B72D9] text-white shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
+          }`}
+        >
+          <Calendar className="w-4 h-4" />
+          <span>Control de Agenda</span>
+        </button>
+        <button
           onClick={() => setActiveTab('orders')}
           className={`flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'orders'
-              ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs'
-              : 'text-[#756A5D] hover:text-[#1F2421]'
+            activeTab === 'orders' ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
           }`}
         >
           <Package className="w-4 h-4" />
@@ -974,9 +1034,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         <button
           onClick={() => setActiveTab('clients')}
           className={`flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'clients'
-              ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs'
-              : 'text-[#756A5D] hover:text-[#1F2421]'
+            activeTab === 'clients' ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
           }`}
         >
           <Users className="w-4 h-4" />
@@ -985,9 +1043,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         <button
           onClick={() => setActiveTab('fixers')}
           className={`flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
-            activeTab === 'fixers'
-              ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs'
-              : 'text-[#756A5D] hover:text-[#1F2421]'
+            activeTab === 'fixers' ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
           }`}
         >
           <Wrench className="w-4 h-4" />
@@ -996,11 +1052,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       </div>
 
       {/* ============================================================== */}
-      {/* TAB 1: RESUMEN Y SISTEMA DE CONSECUTIVOS MENSUALES            */}
+      {/* TAB 1: RESUMEN Y KPIs                                          */}
       {/* ============================================================== */}
       {activeTab === 'kpis' && (
         <div className="space-y-6">
-          {/* Card: Generador de Consecutivo Mensual Atómico */}
           <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
@@ -1011,15 +1066,14 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                   </h3>
                 </div>
                 <p className="text-xs text-[#756A5D] mt-1">
-                  Mecanismo transaccional atómico en <code>counters/orders_YYYY_MM</code> mediante <code>runTransaction</code> para evitar colisiones si dos clientes ordenan simultáneamente.
+                  Mecanismo transaccional atómico en <code>counters/orders_YYYY_MM</code> mediante <code>runTransaction</code>.
                 </p>
               </div>
-
               <button
                 type="button"
                 onClick={handleTestGenerateConsecutive}
                 disabled={isGeneratingConsecutive}
-                className="py-2.5 px-4 rounded-xl bg-[#0B72D9]/10 hover:bg-[#0B72D9]/20 border border-[#0B72D9]/30 text-[#0B72D9] font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer self-start sm:self-auto disabled:opacity-50"
+                className="py-2.5 px-4 rounded-xl bg-[#0B72D9]/10 hover:bg-[#0B72D9]/20 border border-[#0B72D9]/30 text-[#0B72D9] font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingConsecutive ? 'animate-spin' : ''}`} />
                 <span>Simular Consecutivo Atómico</span>
@@ -1030,56 +1084,24 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               <div className="p-4 rounded-2xl bg-[#53653D]/10 border border-[#53653D]/30 flex items-center justify-between">
                 <div>
                   <span className="text-[11px] font-bold text-[#53653D] uppercase tracking-wider block">
-                    Consecutivo Generado Atómicamente en Firestore:
+                    Consecutivo Generado:
                   </span>
                   <span className="font-mono font-bold text-xl sm:text-2xl text-[#1F2421]">
                     {nextConsecutivePreview}
                   </span>
                 </div>
-                <span className="text-xs text-[#53653D] font-medium hidden sm:inline">
-                  Contador en: <code>counters/orders_{new Date().getFullYear()}_{String(new Date().getMonth() + 1).padStart(2, '0')}</code>
-                </span>
               </div>
             )}
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 text-xs">
-              <div className="p-3.5 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5]">
-                <span className="font-bold text-[#1F2421] block mb-1">Estructura del Formato:</span>
-                <p className="text-[#756A5D] leading-relaxed">
-                  Prefijo <strong>FIX-</strong> + Año (2 cifras) + Mes (2 cifras) + <strong>-####</strong> correlativo de 4 cifras con ceros a la izquierda (ej. FIX-2609-0001).
-                </p>
-              </div>
-              <div className="p-3.5 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5]">
-                <span className="font-bold text-[#1F2421] block mb-1">Reinicio Automático:</span>
-                <p className="text-[#756A5D] leading-relaxed">
-                  Cada nuevo mes calendario el contador se reinicia a 0001 automáticamente mediante el documento independiente mensual.
-                </p>
-              </div>
-              <div className="p-3.5 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5]">
-                <span className="font-bold text-[#1F2421] block mb-1">Garantía Atómica:</span>
-                <p className="text-[#756A5D] leading-relaxed">
-                  Respaldado por <code>runTransaction(db)</code> bloqueando lecturas simultáneas para garantizar estricta unicidad.
-                </p>
-              </div>
-            </div>
           </div>
 
-          {/* Quick Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Actividad Reciente de Pedidos */}
             <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-5 shadow-2xs space-y-3">
               <h3 className="font-serif font-bold text-base text-[#1F2421] flex items-center justify-between">
                 <span>Últimos Pedidos con Consecutivo</span>
-                <button
-                  onClick={() => setActiveTab('orders')}
-                  className="text-xs text-[#0B72D9] font-bold hover:underline"
-                >
-                  Ver todos
-                </button>
               </h3>
               <div className="divide-y divide-[#DED4C5]/60 text-xs">
                 {orders.length === 0 ? (
-                  <p className="py-4 text-center text-[#756A5D]">No hay pedidos registrados aún.</p>
+                  <p className="py-4 text-center text-[#756A5D]">No hay pedidos registrados.</p>
                 ) : (
                   orders.slice(0, 5).map((ord) => (
                     <div key={ord.id} className="py-2.5 flex items-center justify-between">
@@ -1088,7 +1110,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                           {ord.numero_pedido || ord.consecutiveId || ord.orderNumber || ord.codigo_seguimiento || 'FIX-PENDIENTE'}
                         </span>
                         <span className="text-[#756A5D] truncate block max-w-[200px]">
-                          {ord.cliente?.nombre || 'Cliente FIXIT'} • {ord.servicio_probable?.service_name || 'Servicio'}
+                          {ord.cliente?.nombre || 'Cliente'} • {ord.servicio_probable?.service_name || 'Servicio'}
                         </span>
                       </div>
                       <div className="text-right">
@@ -1105,30 +1127,19 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               </div>
             </div>
 
-            {/* Disponibilidad de Fixers */}
             <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-5 shadow-2xs space-y-3">
               <h3 className="font-serif font-bold text-base text-[#1F2421] flex items-center justify-between">
                 <span>Estado de Fixers Idóneos</span>
-                <button
-                  onClick={() => setActiveTab('fixers')}
-                  className="text-xs text-[#0B72D9] font-bold hover:underline"
-                >
-                  Ver directorio
-                </button>
               </h3>
               <div className="space-y-2 text-xs">
                 {fixers.slice(0, 4).map((f) => (
                   <div key={f.id} className="p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5]/60 flex items-center justify-between">
                     <div>
                       <span className="font-bold text-[#1F2421] block">{f.nombre}</span>
-                      <span className="text-[11px] text-[#756A5D]">{f.especialidad} • {f.zona_cobertura}</span>
+                      <span className="text-[11px] text-[#756A5D]">{f.especialidad}</span>
                     </div>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                      f.disponibilidad === 'Disponible' 
-                        ? 'bg-[#53653D]/10 text-[#53653D] border-[#53653D]/30' 
-                        : f.disponibilidad === 'En servicio'
-                        ? 'bg-[#B98A43]/10 text-[#B98A43] border-[#B98A43]/30'
-                        : 'bg-[#756A5D]/10 text-[#756A5D] border-[#756A5D]/30'
+                      f.disponibilidad === 'Disponible' ? 'bg-[#53653D]/10 text-[#53653D] border-[#53653D]/30' : 'bg-[#756A5D]/10 text-[#756A5D]'
                     }`}>
                       {f.disponibilidad}
                     </span>
@@ -1141,43 +1152,131 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       )}
 
       {/* ============================================================== */}
-      {/* TAB 2: HISTORIAL DE PEDIDOS CON CORRELATIVO (FIX-YYMM-####)   */}
+      {/* TAB 1.5: NUEVA AGENDA MAESTRA DE FIREBASE                        */}
+      {/* ============================================================== */}
+      {activeTab === 'agenda' && (
+        <div className="space-y-6">
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
+            <div>
+              <h2 className="font-serif font-bold text-xl text-[#1F2421] flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-[#0B72D9]" />
+                Control de Agenda (Bloqueo de Horarios)
+              </h2>
+              <p className="text-xs text-[#756A5D] mt-1">
+                Cuando confirmes una cita por WhatsApp, bloquéala aquí. Ese horario se tachará instantáneamente en la app pública para que nadie más lo pueda elegir.
+              </p>
+            </div>
+
+            <form onSubmit={handleCreateAppointment} className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-[#F6F4EF] p-4 rounded-2xl border border-[#DED4C5]">
+              <div>
+                <label className="text-[11px] font-bold text-[#1F2421] block mb-1">Día de la Cita</label>
+                <input 
+                  type="date" 
+                  required
+                  value={agendaDate}
+                  onChange={(e) => setAgendaDate(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-white border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-[#1F2421] block mb-1">Hora a Bloquear</label>
+                <select 
+                  value={agendaTime}
+                  onChange={(e) => setAgendaTime(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-white border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9] cursor-pointer"
+                >
+                  <option value="08:00 AM">08:00 AM</option>
+                  <option value="10:00 AM">10:00 AM</option>
+                  <option value="12:00 PM">12:00 PM</option>
+                  <option value="02:00 PM">02:00 PM</option>
+                  <option value="04:00 PM">04:00 PM</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-[#1F2421] block mb-1">Detalle / Cliente (Para ti)</label>
+                <input 
+                  type="text" 
+                  placeholder="Ej. Juan Pérez - Plomería"
+                  value={agendaClientInfo}
+                  onChange={(e) => setAgendaClientInfo(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-white border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
+                />
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  disabled={isSavingAppointment}
+                  className="w-full py-2.5 rounded-xl bg-[#0B72D9] hover:bg-[#0962BC] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  {isSavingAppointment ? 'Bloqueando...' : 'Bloquear Hora'}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
+            <h3 className="font-serif font-bold text-lg text-[#1F2421]">Horarios Bloqueados Actualmente</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {appointmentsList.length === 0 ? (
+                <p className="text-sm text-[#756A5D] col-span-full py-4 text-center">
+                  La agenda está limpia. No hay horarios bloqueados.
+                </p>
+              ) : (
+                appointmentsList.map((appo) => (
+                  <div key={appo.id} className="p-4 rounded-2xl border border-rose-200 bg-rose-50 flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-center gap-1.5 text-rose-700 font-bold text-sm mb-1">
+                        <Calendar className="w-4 h-4" />
+                        {appo.date} a las {appo.time}
+                      </div>
+                      <p className="text-xs text-rose-900 font-medium">
+                        {appo.clientInfo}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteAppointment(appo.id)}
+                      className="py-1.5 px-3 rounded-lg border border-rose-300 text-rose-700 text-xs font-bold hover:bg-rose-100 transition-colors self-start cursor-pointer"
+                    >
+                      Liberar Horario
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB 2: PEDIDOS                                                 */}
       {/* ============================================================== */}
       {activeTab === 'orders' && (
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-6 shadow-2xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h2 className="font-serif font-bold text-xl text-[#1F2421]">
-                Historial de Pedidos ({filteredOrders.length})
-              </h2>
-              <p className="text-xs text-[#756A5D]">
-                Listado detallado con consecutivo mensual correlativo, cliente, fixer asignado, servicio, monto y control de estado.
-              </p>
+              <h2 className="font-serif font-bold text-xl text-[#1F2421]">Historial de Pedidos ({filteredOrders.length})</h2>
             </div>
-
-            {/* Actions & Filters */}
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => setIsCreateOrderModalOpen(true)}
-                className="py-1.5 px-3.5 rounded-xl bg-[#082D60] hover:bg-[#062248] text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-                id="btn-create-manual-order-header"
+                className="py-1.5 px-3.5 rounded-xl bg-[#082D60] hover:bg-[#062248] text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>+ Crear Pedido Manual</span>
               </button>
-
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-[#756A5D] absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Buscar consecutivo, cliente o servicio..."
+                  placeholder="Buscar consecutivo, cliente..."
                   value={orderSearch}
                   onChange={(e) => setOrderSearch(e.target.value)}
                   className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[#F6F4EF] border border-[#DED4C5] focus:outline-none focus:border-[#0B72D9] w-60"
                 />
               </div>
-
               <select
                 value={orderStatusFilter}
                 onChange={(e) => setOrderStatusFilter(e.target.value)}
@@ -1193,7 +1292,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Table with Skeletons and Empty State */}
           <div className="overflow-x-auto rounded-2xl border border-[#DED4C5]/80">
             <table className="w-full text-left text-xs">
               <thead className="bg-[#F6F4EF] border-b border-[#DED4C5] text-[#756A5D] uppercase text-[10px] font-bold tracking-wider">
@@ -1212,7 +1310,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                   [1, 2, 3].map((n) => (
                     <tr key={`skel-ord-${n}`} className="animate-pulse">
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-24" /></td>
-                      <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-32 mb-1" /><div className="h-3 bg-[#DED4C5]/30 rounded w-20" /></td>
+                      <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-32" /></td>
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-28" /></td>
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-16" /></td>
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-24" /></td>
@@ -1225,14 +1323,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     <td colSpan={7} className="py-12 text-center text-[#756A5D]">
                       <Package className="w-8 h-8 text-[#DED4C5] mx-auto mb-2" />
                       <p className="font-semibold text-[#1F2421]">No se encontraron pedidos</p>
-                      <p className="text-[11px] text-[#756A5D] mt-1">Puedes registrar un nuevo pedido manualmente con el botón superior.</p>
-                      <button
-                        onClick={() => setIsCreateOrderModalOpen(true)}
-                        className="mt-3 py-1.5 px-3 rounded-xl bg-[#082D60] text-white font-bold text-xs inline-flex items-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Crear Pedido Manual
-                      </button>
                     </td>
                   </tr>
                 ) : (
@@ -1242,27 +1332,21 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                       <tr key={ord.id} className="hover:bg-[#F6F4EF]/50 transition-colors">
                         <td className="py-3 px-4 font-mono font-bold text-[#082D60] whitespace-nowrap">
                           {consecutivo}
-                          {ord.origen === 'ADMIN_MANUAL' && (
-                            <span className="block text-[9px] font-sans font-bold text-[#B98A43]">Manual</span>
-                          )}
                         </td>
                         <td className="py-3 px-4">
                           <span className="font-bold text-[#1F2421] block">{ord.cliente?.nombre || 'Cliente FIXIT'}</span>
                           <span className="text-[11px] text-[#756A5D]">{ord.cliente?.telefono || 'Sin teléfono'}</span>
                         </td>
                         <td className="py-3 px-4">
-                          <span className="font-medium text-[#1F2421] block">{ord.servicio_probable?.service_name || 'Reparaciones del hogar'}</span>
-                          <span className="text-[11px] text-[#756A5D] truncate block max-w-xs">{ord.direccion || 'Ciudad de Panamá'}</span>
+                          <span className="font-medium text-[#1F2421] block">{ord.servicio_probable?.service_name || 'Reparaciones'}</span>
+                          <span className="text-[11px] text-[#756A5D] truncate block max-w-xs">{ord.direccion || 'Panamá'}</span>
                         </td>
                         <td className="py-3 px-4 font-serif font-bold text-[#1F2421] whitespace-nowrap">
                           ${(ord.total_facturado ?? ord.precio_regular ?? 35).toFixed(2)} USD
                         </td>
                         <td className="py-3 px-4 text-[#756A5D]">
                           {ord.tecnico_nombre || ord.tecnico_asignado ? (
-                            <span className="font-semibold text-[#1F2421] flex items-center gap-1">
-                              <Wrench className="w-3.5 h-3.5 text-[#B98A43]" />
-                              {ord.tecnico_nombre || ord.tecnico_asignado}
-                            </span>
+                            <span className="font-semibold text-[#1F2421]">{ord.tecnico_nombre || ord.tecnico_asignado}</span>
                           ) : (
                             <span className="text-[11px] italic text-[#B98A43]">Sin asignar</span>
                           )}
@@ -1284,11 +1368,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                           <div className="flex items-center justify-end gap-1.5">
                             {ord.cliente?.telefono && (
                               <a
-                                href={getWhatsAppLink(ord.cliente.telefono, `Hola ${ord.cliente.nombre || ''}, te contactamos de FIXIT respecto a tu pedido correlativo ${consecutivo}.`)}
+                                href={getWhatsAppLink(ord.cliente.telefono, `Hola ${ord.cliente.nombre || ''}, respecto a tu pedido ${consecutivo}.`)}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="p-1.5 rounded-lg bg-[#53653D]/10 text-[#53653D] hover:bg-[#53653D]/20 transition-colors"
-                                title="Contactar por WhatsApp"
                               >
                                 <MessageCircle className="w-3.5 h-3.5" />
                               </a>
@@ -1297,7 +1380,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                               type="button"
                               onClick={() => setOrderToManage(ord)}
                               className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                              title="Cancelar o Eliminar pedido"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -1314,37 +1396,29 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       )}
 
       {/* ============================================================== */}
-      {/* TAB 3: CLIENTES REGISTRADOS                                    */}
+      {/* TAB 3: CLIENTES                                                */}
       {/* ============================================================== */}
       {activeTab === 'clients' && (
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-6 shadow-2xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h2 className="font-serif font-bold text-xl text-[#1F2421]">
-                Clientes Registrados ({filteredClients.length})
-              </h2>
-              <p className="text-xs text-[#756A5D]">
-                Usuarios registrados en tiempo real en la colección <code>users</code> en Cloud Firestore.
-              </p>
+              <h2 className="font-serif font-bold text-xl text-[#1F2421]">Clientes Registrados ({filteredClients.length})</h2>
             </div>
-
             <div className="flex items-center gap-2 flex-wrap">
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-[#756A5D] absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Buscar por nombre, correo o teléfono..."
+                  placeholder="Buscar por nombre..."
                   value={clientSearch}
                   onChange={(e) => setClientSearch(e.target.value)}
                   className="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[#F6F4EF] border border-[#DED4C5] focus:outline-none focus:border-[#0B72D9] w-64"
                 />
               </div>
-
               <button
                 type="button"
                 onClick={handleExportClientsCSV}
                 className="py-1.5 px-3.5 rounded-xl bg-[#53653D] hover:bg-[#435331] text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-                id="btn-export-clients-csv"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Exportar a CSV</span>
@@ -1352,7 +1426,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Table with Skeletons */}
           <div className="overflow-x-auto rounded-2xl border border-[#DED4C5]/80">
             <table className="w-full text-left text-xs">
               <thead className="bg-[#F6F4EF] border-b border-[#DED4C5] text-[#756A5D] uppercase text-[10px] font-bold tracking-wider">
@@ -1360,89 +1433,29 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                   <th className="py-3 px-4">Nombre</th>
                   <th className="py-3 px-4">Correo</th>
                   <th className="py-3 px-4">Teléfono</th>
-                  <th className="py-3 px-4">Ciudad / Zona</th>
-                  <th className="py-3 px-4">Fecha Registro</th>
-                  <th className="py-3 px-4 text-right">Contacto Directo</th>
+                  <th className="py-3 px-4 text-right">Contacto</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#DED4C5]/60 bg-[#FFFEFA]">
-                {loadingClients ? (
-                  [1, 2, 3].map((n) => (
-                    <tr key={`skel-cli-${n}`} className="animate-pulse">
-                      <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-28" /></td>
-                      <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-36" /></td>
-                      <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-24" /></td>
-                      <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-28" /></td>
-                      <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-24" /></td>
-                      <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-16 ml-auto" /></td>
-                    </tr>
-                  ))
-                ) : filteredClients.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-[#756A5D]">
-                      <Users className="w-8 h-8 text-[#DED4C5] mx-auto mb-2" />
-                      <p className="font-semibold text-[#1F2421]">No se encontraron clientes</p>
-                      <p className="text-[11px] text-[#756A5D] mt-1">Los clientes registrados en Firestore aparecerán aquí automáticamente.</p>
+                {filteredClients.map((c) => (
+                  <tr key={c.id || c.uid} className="hover:bg-[#F6F4EF]/50 transition-colors">
+                    <td className="py-3 px-4 font-bold text-[#1F2421]">{c.displayName || 'Cliente'}</td>
+                    <td className="py-3 px-4 text-[#756A5D]">{c.email || 'Sin correo'}</td>
+                    <td className="py-3 px-4 font-mono text-[#1F2421]">{c.phone || 'Sin teléfono'}</td>
+                    <td className="py-3 px-4 text-right">
+                      {c.phone && (
+                        <a
+                          href={getWhatsAppLink(c.phone, `Hola ${c.displayName || ''}, te saludamos de FIXIT Panamá.`)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex p-1.5 rounded-lg bg-[#53653D]/10 text-[#53653D] hover:bg-[#53653D]/20 transition-colors"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </a>
+                      )}
                     </td>
                   </tr>
-                ) : (
-                  filteredClients.map((c) => {
-                    const formattedDate = c.createdAt?.toDate 
-                      ? c.createdAt.toDate().toLocaleDateString('es-PA', { day: '2-digit', month: 'short', year: 'numeric' })
-                      : c.createdAt 
-                      ? new Date(c.createdAt).toLocaleDateString('es-PA', { day: '2-digit', month: 'short', year: 'numeric' })
-                      : 'Reciente';
-
-                    return (
-                      <tr key={c.id || c.uid} className="hover:bg-[#F6F4EF]/50 transition-colors">
-                        <td className="py-3 px-4">
-                          <span className="font-bold text-[#1F2421] block">
-                            {c.displayName || 'Cliente Sin Nombre'}
-                          </span>
-                          <span className="text-[10px] font-mono text-[#756A5D]">
-                            UID: {(c.uid || c.id).slice(0, 10)}...
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-[#756A5D]">
-                          {c.email || 'Sin correo'}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-[#1F2421]">
-                          {c.phone || 'Sin teléfono'}
-                        </td>
-                        <td className="py-3 px-4 text-[#756A5D]">
-                          {c.city || 'Ciudad de Panamá'}
-                        </td>
-                        <td className="py-3 px-4 text-[#756A5D] whitespace-nowrap">
-                          {formattedDate}
-                        </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-2">
-                            {c.phone && (
-                              <a
-                                href={getWhatsAppLink(c.phone, `Hola ${c.displayName || ''}, te saludamos de FIXIT Panamá.`)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="p-1.5 rounded-lg bg-[#53653D]/10 text-[#53653D] hover:bg-[#53653D]/20 transition-colors"
-                                title="Abrir chat en WhatsApp (+507)"
-                              >
-                                <MessageCircle className="w-4 h-4" />
-                              </a>
-                            )}
-                            {c.email && (
-                              <a
-                                href={`mailto:${c.email}?subject=Contacto%20FIXIT%20Panamá`}
-                                className="p-1.5 rounded-lg bg-[#0B72D9]/10 text-[#0B72D9] hover:bg-[#0B72D9]/20 transition-colors"
-                                title="Enviar correo electrónico"
-                              >
-                                <Mail className="w-4 h-4" />
-                              </a>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
+                ))}
               </tbody>
             </table>
           </div>
@@ -1450,57 +1463,15 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       )}
 
       {/* ============================================================== */}
-      {/* TAB 4: DIRECTORIO DE FIXERS (TÉCNICOS)                         */}
+      {/* TAB 4: FIXERS                                                  */}
       {/* ============================================================== */}
       {activeTab === 'fixers' && (
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-6 shadow-2xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h2 className="font-serif font-bold text-xl text-[#1F2421]">
-                Directorio de Fixers ({filteredFixers.length})
-              </h2>
-              <p className="text-xs text-[#756A5D]">
-                Gestión de técnicos calificados en la colección <code>fixers</code> / <code>technicians</code>.
-              </p>
+              <h2 className="font-serif font-bold text-xl text-[#1F2421]">Directorio de Fixers ({filteredFixers.length})</h2>
             </div>
-
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Selector de vista: Cards / Tabla */}
-              <div className="flex items-center bg-[#F6F4EF] p-0.5 rounded-xl border border-[#DED4C5]">
-                <button
-                  type="button"
-                  onClick={() => setFixerViewMode('cards')}
-                  className={`p-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                    fixerViewMode === 'cards' ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs' : 'text-[#756A5D]'
-                  }`}
-                  title="Vista de Tarjetas"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFixerViewMode('table')}
-                  className={`p-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
-                    fixerViewMode === 'table' ? 'bg-[#FFFEFA] text-[#082D60] shadow-xs' : 'text-[#756A5D]'
-                  }`}
-                  title="Vista de Tabla"
-                >
-                  <List className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <select
-                value={fixerFilter}
-                onChange={(e) => setFixerFilter(e.target.value)}
-                className="py-1.5 px-3 text-xs rounded-xl bg-[#F6F4EF] border border-[#DED4C5] font-semibold text-[#1F2421] cursor-pointer"
-              >
-                <option value="all">Todas las especialidades</option>
-                <option value="Plomería">Plomería</option>
-                <option value="Electricidad">Electricidad</option>
-                <option value="Reparaciones del hogar">Reparaciones Generales</option>
-                <option value="Pintura">Pintura Residencial</option>
-              </select>
-
               <button
                 type="button"
                 onClick={() => setIsAddFixerModalOpen(true)}
@@ -1512,189 +1483,42 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Sincronizador de técnicos en Firestore */}
-          <div className="p-3 rounded-2xl bg-[#0B72D9]/5 border border-[#0B72D9]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-            <span className="text-[#082D60] flex items-center gap-1.5 font-medium">
-              <Sparkles className="w-4 h-4 text-[#0B72D9] shrink-0" />
-              Técnicos idóneos certificados en Plomería, Electricidad, Reparaciones y Pintura con enlace directo a WhatsApp (+507).
-            </span>
-            <button
-              type="button"
-              onClick={handleSeedDefaultFixers}
-              disabled={isSeedingFixers}
-              className="text-[#0B72D9] font-bold hover:underline cursor-pointer disabled:opacity-50 text-[11px] self-start sm:self-auto shrink-0"
-            >
-              {isSeedingFixers ? 'Guardando en Firestore...' : 'Sincronizar base en Firestore'}
-            </button>
-          </div>
-
-          {/* Vista de Tarjetas (Cards) */}
-          {fixerViewMode === 'cards' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {loadingFixers ? (
-                [1, 2, 3].map((n) => (
-                  <div key={`skel-fixer-${n}`} className="p-5 rounded-2xl border border-[#DED4C5] bg-[#FFFEFA] animate-pulse space-y-3">
-                    <div className="h-5 bg-[#DED4C5]/40 rounded w-36" />
-                    <div className="h-4 bg-[#DED4C5]/30 rounded w-24" />
-                    <div className="h-4 bg-[#DED4C5]/30 rounded w-48" />
-                  </div>
-                ))
-              ) : filteredFixers.length === 0 ? (
-                <div className="col-span-full py-12 text-center text-[#756A5D]">
-                  <Wrench className="w-8 h-8 text-[#DED4C5] mx-auto mb-2" />
-                  <p className="font-semibold text-[#1F2421]">No hay fixers para este filtro</p>
-                  <p className="text-[11px] text-[#756A5D] mt-1">Registra un nuevo fixer o ajusta los criterios de búsqueda.</p>
-                </div>
-              ) : (
-                filteredFixers.map((fixer) => (
-                  <div
-                    key={fixer.id}
-                    className="p-5 rounded-2xl border border-[#DED4C5] bg-[#FFFEFA] hover:border-[#0B72D9]/60 transition-all shadow-2xs flex flex-col justify-between space-y-3"
-                  >
-                    <div className="space-y-1.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h4 className="font-serif font-bold text-base text-[#1F2421]">
-                            {fixer.nombre}
-                          </h4>
-                          <span className="text-[11px] font-semibold text-[#0B72D9] block">
-                            {fixer.especialidad}
-                          </span>
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          fixer.disponibilidad === 'Disponible' 
-                            ? 'bg-[#53653D]/10 text-[#53653D] border-[#53653D]/30' 
-                            : fixer.disponibilidad === 'En servicio'
-                            ? 'bg-[#B98A43]/10 text-[#B98A43] border-[#B98A43]/30'
-                            : 'bg-[#756A5D]/10 text-[#756A5D] border-[#756A5D]/30'
-                        }`}>
-                          {fixer.disponibilidad}
-                        </span>
-                      </div>
-
-                      <p className="text-xs text-[#756A5D]">
-                        📍 Zona: {fixer.zona_cobertura || 'Ciudad de Panamá'}
-                      </p>
-
-                      <div className="flex items-center gap-3 pt-1 text-xs">
-                        <span className="flex items-center gap-1 text-[#B98A43] font-bold">
-                          <Star className="w-3.5 h-3.5 fill-[#B98A43]" />
-                          {fixer.calificacion.toFixed(1)}
-                        </span>
-                        <span className="text-[#756A5D]">
-                          <strong>{fixer.trabajos_realizados}</strong> trabajos realizados
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-[#DED4C5]/60 flex items-center justify-between gap-2">
-                      <span className="text-xs font-mono font-semibold text-[#1F2421]">
-                        {fixer.telefono || 'Sin teléfono'}
+          <div className="overflow-x-auto rounded-2xl border border-[#DED4C5]/80">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#F6F4EF] border-b border-[#DED4C5] text-[#756A5D] uppercase text-[10px] font-bold tracking-wider">
+                <tr>
+                  <th className="py-3 px-4">Nombre</th>
+                  <th className="py-3 px-4">Especialidad</th>
+                  <th className="py-3 px-4">Teléfono</th>
+                  <th className="py-3 px-4">Estado</th>
+                  <th className="py-3 px-4 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#DED4C5]/60 bg-[#FFFEFA]">
+                {filteredFixers.map((fixer) => (
+                  <tr key={fixer.id} className="hover:bg-[#F6F4EF]/50 transition-colors">
+                    <td className="py-3 px-4 font-bold text-[#1F2421]">{fixer.nombre}</td>
+                    <td className="py-3 px-4 font-medium text-[#0B72D9]">{fixer.especialidad}</td>
+                    <td className="py-3 px-4 font-mono">{fixer.telefono || 'N/A'}</td>
+                    <td className="py-3 px-4">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-[#53653D]/10 text-[#53653D] border-[#53653D]/30">
+                        {fixer.disponibilidad}
                       </span>
-                      <div className="flex items-center gap-1.5">
-                        {fixer.telefono && (
-                          <a
-                            href={getWhatsAppLink(fixer.telefono, `Hola ${fixer.nombre}, te contactamos desde administración de FIXIT.`)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="py-1.5 px-3 rounded-xl bg-[#53653D] hover:bg-[#435331] text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-colors"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>WhatsApp</span>
-                          </a>
-                        )}
-                        {/* 1. Botón Eliminar Fixer */}
-                        <button
-                          type="button"
-                          onClick={() => setFixerToDelete(fixer)}
-                          className="p-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                          title={`Eliminar técnico ${fixer.nombre}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          ) : (
-            // Vista de Tabla
-            <div className="overflow-x-auto rounded-2xl border border-[#DED4C5]/80">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-[#F6F4EF] border-b border-[#DED4C5] text-[#756A5D] uppercase text-[10px] font-bold tracking-wider">
-                  <tr>
-                    <th className="py-3 px-4">Nombre del Fixer</th>
-                    <th className="py-3 px-4">Especialidad</th>
-                    <th className="py-3 px-4">Teléfono (+507)</th>
-                    <th className="py-3 px-4">Zona</th>
-                    <th className="py-3 px-4">Disponibilidad</th>
-                    <th className="py-3 px-4">Calificación</th>
-                    <th className="py-3 px-4">Trabajos</th>
-                    <th className="py-3 px-4 text-right">Acciones</th>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setFixerToDelete(fixer)}
+                        className="p-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-[#DED4C5]/60 bg-[#FFFEFA]">
-                  {filteredFixers.map((fixer) => (
-                    <tr key={fixer.id} className="hover:bg-[#F6F4EF]/50 transition-colors">
-                      <td className="py-3 px-4 font-bold text-[#1F2421]">
-                        {fixer.nombre}
-                      </td>
-                      <td className="py-3 px-4 font-medium text-[#0B72D9]">
-                        {fixer.especialidad}
-                      </td>
-                      <td className="py-3 px-4 font-mono">
-                        {fixer.telefono || 'N/A'}
-                      </td>
-                      <td className="py-3 px-4 text-[#756A5D]">
-                        {fixer.zona_cobertura || 'Ciudad de Panamá'}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          fixer.disponibilidad === 'Disponible' 
-                            ? 'bg-[#53653D]/10 text-[#53653D] border-[#53653D]/30' 
-                            : fixer.disponibilidad === 'En servicio'
-                            ? 'bg-[#B98A43]/10 text-[#B98A43] border-[#B98A43]/30'
-                            : 'bg-[#756A5D]/10 text-[#756A5D] border-[#756A5D]/30'
-                        }`}>
-                          {fixer.disponibilidad}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 font-bold text-[#B98A43]">
-                        ★ {fixer.calificacion.toFixed(1)}
-                      </td>
-                      <td className="py-3 px-4 text-[#1F2421]">
-                        {fixer.trabajos_realizados}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {fixer.telefono && (
-                            <a
-                              href={getWhatsAppLink(fixer.telefono, `Hola ${fixer.nombre}, te contactamos desde administración de FIXIT.`)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] font-bold text-[#53653D] hover:underline"
-                            >
-                              <MessageCircle className="w-3.5 h-3.5" />
-                              <span>WhatsApp</span>
-                            </a>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => setFixerToDelete(fixer)}
-                            className="p-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                            title={`Eliminar técnico ${fixer.nombre}`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -1703,97 +1527,21 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       {/* ============================================================== */}
       {isAddFixerModalOpen && (
         <div className="fixed inset-0 z-50 bg-[#082D60]/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-md w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95">
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-md w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-[#DED4C5]/60 pb-3">
-              <div className="flex items-center gap-2">
-                <Wrench className="w-5 h-5 text-[#0B72D9]" />
-                <h3 className="font-serif font-bold text-lg text-[#1F2421]">Registrar Nuevo Fixer</h3>
-              </div>
-              <button
-                onClick={() => setIsAddFixerModalOpen(false)}
-                className="p-1 rounded-full text-[#756A5D] hover:text-[#1F2421] cursor-pointer"
-              >
-                <X className="w-5 h-5" />
+              <h3 className="font-serif font-bold text-lg text-[#1F2421]">Registrar Fixer</h3>
+              <button onClick={() => setIsAddFixerModalOpen(false)}>
+                <X className="w-5 h-5 text-[#756A5D]" />
               </button>
             </div>
-
             <form onSubmit={handleCreateFixer} className="space-y-3.5 text-xs">
-              <div>
-                <label className="font-bold text-[#1F2421] block mb-1">Nombre Completo *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. Carlos Mendoza"
-                  value={newFixerName}
-                  onChange={(e) => setNewFixerName(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-[#1F2421] block mb-1">Teléfono (WhatsApp Panamá) *</label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="Ej. 6123-4567"
-                  value={newFixerPhone}
-                  onChange={(e) => setNewFixerPhone(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-[#1F2421] block mb-1">Correo Electrónico (Opcional)</label>
-                <input
-                  type="email"
-                  placeholder="carlos.fixer@fixit.com.pa"
-                  value={newFixerEmail}
-                  onChange={(e) => setNewFixerEmail(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                />
-              </div>
-
-              <div>
-                <label className="font-bold text-[#1F2421] block mb-1">Especialidad Principal *</label>
-                <select
-                  value={newFixerSpecialty}
-                  onChange={(e) => setNewFixerSpecialty(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9] cursor-pointer"
-                >
-                  <option value="Plomería">Plomería</option>
-                  <option value="Electricidad">Electricidad</option>
-                  <option value="Reparaciones del hogar">Reparaciones Generales / Montajes</option>
-                  <option value="Pintura residencial">Pintura Residencial</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="font-bold text-[#1F2421] block mb-1">Zona de Cobertura</label>
-                <input
-                  type="text"
-                  placeholder="Ej. San Francisco, Bella Vista, Costa del Este"
-                  value={newFixerZone}
-                  onChange={(e) => setNewFixerZone(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                />
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddFixerModalOpen(false)}
-                  className="py-2.5 px-4 rounded-xl border border-[#DED4C5] font-semibold text-xs text-[#756A5D] hover:bg-[#F6F4EF] cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingFixer}
-                  className="py-2.5 px-5 rounded-xl bg-[#0B72D9] hover:bg-[#0962BC] text-white font-bold text-xs shadow-xs disabled:opacity-50 cursor-pointer"
-                >
-                  {savingFixer ? 'Guardando...' : 'Guardar Fixer'}
-                </button>
-              </div>
+              <input type="text" required placeholder="Nombre" value={newFixerName} onChange={(e) => setNewFixerName(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
+              <input type="tel" required placeholder="Teléfono" value={newFixerPhone} onChange={(e) => setNewFixerPhone(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
+              <select value={newFixerSpecialty} onChange={(e) => setNewFixerSpecialty(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]">
+                <option value="Plomería">Plomería</option>
+                <option value="Electricidad">Electricidad</option>
+              </select>
+              <button type="submit" className="w-full py-2.5 rounded-xl bg-[#0B72D9] text-white font-bold">Guardar</button>
             </form>
           </div>
         </div>
@@ -1804,265 +1552,35 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       {/* ============================================================== */}
       {fixerToDelete && (
         <div className="fixed inset-0 z-50 bg-[#082D60]/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-md w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-serif font-bold text-base text-[#1F2421]">¿Eliminar Fixer del Directorio?</h3>
-                <p className="text-xs text-[#756A5D]">Esta acción no se puede deshacer.</p>
-              </div>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5] text-xs space-y-1">
-              <p className="font-bold text-[#1F2421]">{fixerToDelete.nombre}</p>
-              <p className="text-[#756A5D]">Especialidad: <span className="font-medium text-[#082D60]">{fixerToDelete.especialidad}</span></p>
-              <p className="text-[#756A5D]">Teléfono: <span className="font-mono text-[#1F2421]">{fixerToDelete.telefono}</span></p>
-              <p className="text-[#756A5D]">Zona: {fixerToDelete.zona_cobertura || 'Ciudad de Panamá'}</p>
-            </div>
-
-            <p className="text-xs text-[#756A5D] leading-relaxed">
-              ¿Estás seguro de eliminar al técnico <strong>{fixerToDelete.nombre}</strong>? Se borrará el documento correspondiente en Firestore.
-            </p>
-
-            <div className="pt-2 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setFixerToDelete(null)}
-                disabled={isDeletingFixer}
-                className="py-2.5 px-4 rounded-xl border border-[#DED4C5] font-semibold text-xs text-[#756A5D] hover:bg-[#F6F4EF] cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDeleteFixer}
-                disabled={isDeletingFixer}
-                className="py-2.5 px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{isDeletingFixer ? 'Eliminando...' : 'Sí, Eliminar Técnico'}</span>
-              </button>
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4">
+            <h3 className="font-serif font-bold text-base text-[#1F2421]">¿Eliminar Fixer?</h3>
+            <p className="text-xs text-[#756A5D]">Esta acción no se puede deshacer.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setFixerToDelete(null)} className="py-2 px-4 border border-[#DED4C5] rounded-xl text-xs">Cancelar</button>
+              <button onClick={handleConfirmDeleteFixer} className="py-2 px-4 bg-rose-600 text-white rounded-xl text-xs font-bold">Eliminar</button>
             </div>
           </div>
         </div>
       )}
 
       {/* ============================================================== */}
-      {/* MODAL 3: CREAR PEDIDO MANUAL (GESTIÓN MANUAL EXTERNA)          */}
+      {/* MODAL 3: CREAR PEDIDO MANUAL                                   */}
       {/* ============================================================== */}
       {isCreateOrderModalOpen && (
-        <div className="fixed inset-0 z-50 bg-[#082D60]/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-lg w-full p-6 shadow-xl space-y-4 my-8 animate-in fade-in zoom-in-95">
+        <div className="fixed inset-0 z-50 bg-[#082D60]/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-lg w-full p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between border-b border-[#DED4C5]/60 pb-3">
-              <div className="flex items-center gap-2">
-                <Package className="w-5 h-5 text-[#082D60]" />
-                <div>
-                  <h3 className="font-serif font-bold text-lg text-[#1F2421]">Crear Pedido Manual</h3>
-                  <p className="text-[11px] text-[#756A5D]">Para pedidos recibidos por llamada, WhatsApp o referidos</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsCreateOrderModalOpen(false)}
-                className="p-1 rounded-full text-[#756A5D] hover:text-[#1F2421] cursor-pointer"
-              >
-                <X className="w-5 h-5" />
+              <h3 className="font-serif font-bold text-lg text-[#1F2421]">Crear Pedido Manual</h3>
+              <button onClick={() => setIsCreateOrderModalOpen(false)}>
+                <X className="w-5 h-5 text-[#756A5D]" />
               </button>
             </div>
-
-            <form onSubmit={handleCreateManualOrder} className="space-y-3 text-xs">
-              {/* Cliente */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="font-bold text-[#1F2421] block mb-1">Nombre del Cliente *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. Maria Elena Díaz"
-                    value={manualClientName}
-                    onChange={(e) => setManualClientName(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-[#1F2421] block mb-1">Teléfono (WhatsApp Panamá) *</label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="Ej. 6890-1234"
-                    value={manualClientPhone}
-                    onChange={(e) => setManualClientPhone(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="font-bold text-[#1F2421] block mb-1">Correo Electrónico (Opcional)</label>
-                <input
-                  type="email"
-                  placeholder="cliente@gmail.com"
-                  value={manualClientEmail}
-                  onChange={(e) => setManualClientEmail(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                />
-              </div>
-
-              {/* Selector de Servicio */}
-              <div>
-                <label className="font-bold text-[#1F2421] block mb-1">Servicio del Catálogo FIXIT *</label>
-                <select
-                  value={manualSelectedCatalogId}
-                  onChange={(e) => handleCatalogServiceChange(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9] cursor-pointer"
-                >
-                  <optgroup label="Servicios Catalogados">
-                    {FIXIT_CATALOG.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        [{s.category}] {s.service_name} (${s.price || 35}.00)
-                      </option>
-                    ))}
-                  </optgroup>
-                  <option value="custom">-- Otro Servicio / Personalizado --</option>
-                </select>
-              </div>
-
-              {manualSelectedCatalogId === 'custom' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-[#F6F4EF] border border-[#DED4C5]/80">
-                  <div>
-                    <label className="font-bold text-[#1F2421] block mb-1">Nombre del Servicio *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Ej. Reparación especial de ventana"
-                      value={manualServiceName}
-                      onChange={(e) => setManualServiceName(e.target.value)}
-                      className="w-full p-2 rounded-lg bg-white border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-bold text-[#1F2421] block mb-1">Categoría</label>
-                    <select
-                      value={manualCategory}
-                      onChange={(e) => setManualCategory(e.target.value)}
-                      className="w-full p-2 rounded-lg bg-white border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                    >
-                      <option value="Reparaciones del hogar">Reparaciones del hogar</option>
-                      <option value="Plomería">Plomería</option>
-                      <option value="Electricidad">Electricidad</option>
-                      <option value="Pintura residencial">Pintura residencial</option>
-                      <option value="Aire acondicionado">Aire acondicionado</option>
-                    </select>
-                  </div>
-                </div>
-              )}
-
-              {/* Fixer y Monto */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="font-bold text-[#1F2421] block mb-1">Fixer Asignado</label>
-                  <select
-                    value={manualFixerId}
-                    onChange={(e) => setManualFixerId(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9] cursor-pointer"
-                  >
-                    <option value="">-- Sin asignar por ahora --</option>
-                    {fixers.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.nombre} ({f.especialidad})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="font-bold text-[#1F2421] block mb-1">Monto Total ($ USD) *</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2.5 font-bold text-[#756A5D]">$</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      min="1"
-                      value={manualAmount}
-                      onChange={(e) => setManualAmount(e.target.value)}
-                      className="w-full pl-7 pr-3 p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9] font-mono font-bold"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Dirección y Fecha Agendada */}
-              <div>
-                <label className="font-bold text-[#1F2421] block mb-1">Dirección / Ubicación en Panamá *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. Bella Vista, Calle 45, Edif. Los Pinos, Apto 4B"
-                  value={manualAddress}
-                  onChange={(e) => setManualAddress(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="font-bold text-[#1F2421] block mb-1">Fecha y Hora Agendada</label>
-                  <input
-                    type="datetime-local"
-                    value={manualScheduledDate}
-                    onChange={(e) => setManualScheduledDate(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9]"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-[#1F2421] block mb-1">Estado Inicial</label>
-                  <select
-                    value={manualInitialStatus}
-                    onChange={(e) => setManualInitialStatus(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9] cursor-pointer"
-                  >
-                    <option value="Pendiente">Pendiente (Nueva)</option>
-                    <option value="En camino">En camino</option>
-                    <option value="En progreso">En progreso</option>
-                    <option value="Completado">Completado</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Notas */}
-              <div>
-                <label className="font-bold text-[#1F2421] block mb-1">Observaciones / Notas Internas</label>
-                <textarea
-                  rows={2}
-                  placeholder="Detalles sobre el problema, estacionamiento, indicaciones del cliente..."
-                  value={manualNotes}
-                  onChange={(e) => setManualNotes(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-xs focus:outline-none focus:border-[#0B72D9] resize-none"
-                />
-              </div>
-
-              <div className="p-3 rounded-xl bg-[#53653D]/10 border border-[#53653D]/30 flex items-center justify-between text-[11px] text-[#53653D]">
-                <span>Al guardar se generará automáticamente el consecutivo <strong>FIX-YYMM-####</strong>.</span>
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateOrderModalOpen(false)}
-                  className="py-2.5 px-4 rounded-xl border border-[#DED4C5] font-semibold text-xs text-[#756A5D] hover:bg-[#F6F4EF] cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingManualOrder}
-                  className="py-2.5 px-5 rounded-xl bg-[#082D60] hover:bg-[#062248] text-white font-bold text-xs shadow-xs disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>{savingManualOrder ? 'Generando Pedido...' : 'Guardar Pedido'}</span>
-                </button>
-              </div>
+            <form onSubmit={handleCreateManualOrder} className="space-y-3 text-xs max-h-[60vh] overflow-y-auto">
+              <input type="text" required placeholder="Nombre Cliente" value={manualClientName} onChange={(e) => setManualClientName(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
+              <input type="tel" required placeholder="Teléfono" value={manualClientPhone} onChange={(e) => setManualClientPhone(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
+              <input type="text" required placeholder="Dirección" value={manualAddress} onChange={(e) => setManualAddress(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
+              <input type="number" required placeholder="Monto" value={manualAmount} onChange={(e) => setManualAmount(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
+              <button type="submit" className="w-full py-2.5 rounded-xl bg-[#082D60] text-white font-bold">Guardar Pedido</button>
             </form>
           </div>
         </div>
@@ -2073,95 +1591,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       {/* ============================================================== */}
       {orderToManage && (
         <div className="fixed inset-0 z-50 bg-[#082D60]/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-md w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-[#DED4C5]/60 pb-3">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-[#B98A43]" />
-                <h3 className="font-serif font-bold text-base text-[#1F2421]">Gestión y Baja de Pedido</h3>
-              </div>
-              <button
-                onClick={() => setOrderToManage(null)}
-                className="p-1 rounded-full text-[#756A5D] hover:text-[#1F2421] cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-3.5 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5] text-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="font-mono font-bold text-[#082D60]">
-                  {orderToManage.numero_pedido || orderToManage.consecutiveId || orderToManage.orderNumber || orderToManage.codigo_seguimiento || orderToManage.id}
-                </span>
-                <span className="font-bold text-[#1F2421]">
-                  ${(orderToManage.total_facturado ?? orderToManage.precio_regular ?? 35).toFixed(2)} USD
-                </span>
-              </div>
-              <p className="text-[#1F2421] font-semibold">{orderToManage.cliente?.nombre || 'Cliente'}</p>
-              <p className="text-[#756A5D]">{orderToManage.servicio_probable?.service_name || 'Servicio'}</p>
-              <p className="text-[#756A5D]">Estado actual: <span className="font-bold text-[#082D60]">{orderToManage.estado || 'Pendiente'}</span></p>
-            </div>
-
-            <p className="text-xs text-[#756A5D]">
-              Elige qué acción deseas realizar sobre esta orden:
-            </p>
-
-            <div className="space-y-2.5">
-              {/* Opción A: Cancelar Pedido */}
-              <div className="p-3.5 rounded-2xl border border-amber-200 bg-amber-50/60 hover:bg-amber-50 transition-colors flex flex-col gap-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h4 className="font-bold text-xs text-amber-900 flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-amber-600" />
-                      Opción A: Marcar como Cancelado
-                    </h4>
-                    <p className="text-[11px] text-amber-800/80 mt-0.5 leading-relaxed">
-                      Cambia el estado a <strong>Cancelado</strong>. No sumará en la facturación total activa, pero se conservará en el historial de pedidos.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleConfirmCancelOrder}
-                    disabled={isActionInProgress}
-                    className="py-1.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shrink-0 cursor-pointer disabled:opacity-50"
-                  >
-                    {isActionInProgress ? 'Procesando...' : 'Cancelar Pedido'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Opción B: Eliminar Definitivo */}
-              <div className="p-3.5 rounded-2xl border border-rose-200 bg-rose-50/60 hover:bg-rose-50 transition-colors flex flex-col gap-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h4 className="font-bold text-xs text-rose-900 flex items-center gap-1.5">
-                      <Trash2 className="w-4 h-4 text-rose-600" />
-                      Opción B: Eliminar Registro Definitivo
-                    </h4>
-                    <p className="text-[11px] text-rose-800/80 mt-0.5 leading-relaxed">
-                      Ejecuta <code>deleteDoc</code> en Firestore. Borra permanentemente el pedido si fue creado por error de prueba.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleConfirmDeleteOrder}
-                    disabled={isActionInProgress}
-                    className="py-1.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shrink-0 cursor-pointer disabled:opacity-50"
-                  >
-                    {isActionInProgress ? 'Borrando...' : 'Borrar de BD'}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setOrderToManage(null)}
-                disabled={isActionInProgress}
-                className="py-2 px-4 rounded-xl border border-[#DED4C5] font-semibold text-xs text-[#756A5D] hover:bg-[#F6F4EF] cursor-pointer"
-              >
-                Cerrar
-              </button>
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-sm w-full p-6 shadow-xl space-y-4">
+            <h3 className="font-serif font-bold text-base text-[#1F2421]">Gestionar Pedido</h3>
+            <div className="flex flex-col gap-2">
+              <button onClick={handleConfirmCancelOrder} className="py-2 bg-amber-600 text-white rounded-xl text-xs font-bold">Marcar como Cancelado</button>
+              <button onClick={handleConfirmDeleteOrder} className="py-2 bg-rose-600 text-white rounded-xl text-xs font-bold">Borrar de BD</button>
+              <button onClick={() => setOrderToManage(null)} className="py-2 border border-[#DED4C5] rounded-xl text-xs">Cerrar</button>
             </div>
           </div>
         </div>
