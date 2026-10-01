@@ -21,6 +21,9 @@ import { FIXIT_WHATSAPP_NUMBER, openWhatsAppSafely, generateDirectWhatsAppLink }
 import { RotateCcw, ArrowRight } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 
+// 1. NUEVO: Importamos el componente de FIXIT Pro
+import FixitPro from './components/FixitPro'; 
+
 const STORAGE_KEY_FIXIT_DRAFT = 'fixit_customer_draft_v2';
 
 export default function App() {
@@ -29,7 +32,6 @@ export default function App() {
   const pwaUpdate = usePWAUpdate();
 
   // App Initial Launch Animated Splash Screen state:
-  // Render only once per session so navigating back or returning from WhatsApp doesn't flash the splash screen
   const [isInitialSplashActive, setIsInitialSplashActive] = useState(() => {
     try {
       return !sessionStorage.getItem('fixit_splash_shown');
@@ -45,7 +47,7 @@ export default function App() {
     setIsInitialSplashActive(false);
   };
 
-  // Core Request State (Preserved across all navigation steps)
+  // Core Request State
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>('Plomería');
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [problemDescription, setProblemDescription] = useState<string>('');
@@ -57,7 +59,6 @@ export default function App() {
   const [acDetails, setAcDetails] = useState<ACInstallationDetails | null>(null);
   const [adjustedPrice, setAdjustedPrice] = useState<number | null>(null);
 
-  // Synchronously compute activeService from route parameters to avoid missing service flicker
   const activeService = useMemo(() => {
     if (
       currentRoute.step === 'service' ||
@@ -83,7 +84,6 @@ export default function App() {
     return activeService ? activeService.category : selectedCategory;
   }, [currentRoute, activeService, selectedCategory]);
 
-  // Keep state synchronized with resolved active service/category
   useEffect(() => {
     if (activeService && (!selectedService || selectedService.id !== activeService.id)) {
       setSelectedService(activeService);
@@ -93,7 +93,6 @@ export default function App() {
     }
   }, [activeService, activeCategory, currentRoute.step, selectedService, selectedCategory]);
 
-  // 1. Restore persistent user draft on mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_FIXIT_DRAFT);
@@ -121,7 +120,6 @@ export default function App() {
     }
   }, []);
 
-  // 2. Persist state to localStorage on every change so going back never loses data
   useEffect(() => {
     try {
       const draft = {
@@ -153,7 +151,6 @@ export default function App() {
     adjustedPrice,
   ]);
 
-  // 4. Sync Firebase auth state
   useEffect(() => {
     const unsub = authService.subscribe((state) => {
       setAuthState(state);
@@ -167,14 +164,12 @@ export default function App() {
     return () => unsub();
   }, [customerName, customerPhone]);
 
-  // Redirect to home if user is already authenticated and visits login/register
   useEffect(() => {
     if (authState.user && (currentRoute.step === 'login' || currentRoute.step === 'register')) {
       navigate({ step: 'home' }, true);
     }
   }, [authState.user, currentRoute.step, navigate]);
 
-  // User Actions & Handlers
   const handleSelectCategory = (category: ServiceCategory) => {
     setSelectedCategory(category);
     const categorySlug = category.toLowerCase().replace(/\s+/g, '-');
@@ -225,7 +220,6 @@ export default function App() {
 
   const isSubStep = currentRoute.step !== 'home';
 
-  // Dedicated Auth Screens (Login / Register)
   if (currentRoute.step === 'login') {
     return (
       <AuthLoginScreen
@@ -248,17 +242,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F6F4EF] text-[#1F2421] flex flex-col font-sans selection:bg-[#0B72D9]/15">
-      {/* Animated App Launch Splash Screen */}
       <AnimatePresence>
         {isInitialSplashActive && (
           <SplashScreen onFinish={handleSplashFinish} />
         )}
       </AnimatePresence>
 
-      {/* PWA Install Banner */}
       <PWAInstallBanner />
 
-      {/* Main App Navigation */}
       <Navbar
         currentView={currentRoute.step}
         canGoBack={isSubStep}
@@ -273,6 +264,9 @@ export default function App() {
             navigate({ step: 'register' });
           } else if (view === 'admin') {
             navigate({ step: 'admin' });
+          } else if (view === 'pro') {
+            // 2. NUEVO: Agregamos la ruta en la navegación principal
+            navigate({ step: 'pro' });
           } else {
             navigate({ step: 'home' });
           }
@@ -281,9 +275,7 @@ export default function App() {
         hasUpdate={pwaUpdate.hasUpdate}
       />
 
-      {/* Main Dynamic View */}
       <main className="flex-1 pb-16">
-        {/* Active Draft Bar if user returns to Home with pending work */}
         {currentRoute.step === 'home' && activeService && (
           <div className="max-w-xl mx-auto px-4 pt-3">
             <div className="bg-[#FFFEFA] border border-[#0B72D9]/30 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3">
@@ -313,9 +305,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Stable Synchronous Step Rendering (Zero Blink / Zero Layout Shift on Back) */}
         <div className="w-full">
-          {/* 1. STEP: CATEGORY SELECTION (HOME) */}
           {currentRoute.step === 'home' && (
             <div key="step-home" className="w-full">
               <CategorySelectionStep
@@ -326,7 +316,6 @@ export default function App() {
             </div>
           )}
 
-          {/* 2. STEP: SERVICE SELECTION (BY CATEGORY) */}
           {currentRoute.step === 'category' && (
             <div key={`step-category-${activeCategory}`} className="w-full">
               <ServiceSelectionStep
@@ -337,7 +326,6 @@ export default function App() {
             </div>
           )}
 
-          {/* 3. STEP: SERVICE PRICE & EVALUATION */}
           {currentRoute.step === 'service' && activeService && (
             <div key={`step-service-${activeService.id}`} className="w-full">
               <ServicePriceStep
@@ -348,7 +336,6 @@ export default function App() {
             </div>
           )}
 
-          {/* 4. STEP: PROBLEM DESCRIPTION & 3-PHOTO SLOTS */}
           {currentRoute.step === 'detail' && activeService && (
             <div key={`step-detail-${activeService.id}`} className="w-full">
               <ProblemDetailStep
@@ -363,7 +350,6 @@ export default function App() {
             </div>
           )}
 
-          {/* 5. STEP: ORDER SUMMARY & WHATSAPP GENERATION */}
           {currentRoute.step === 'summary' && activeService && (
             <div key={`step-summary-${activeService.id}`} className="w-full">
               <SummaryWhatsAppStep
@@ -385,7 +371,6 @@ export default function App() {
             </div>
           )}
 
-          {/* 6. STEP: ADMIN DASHBOARD */}
           {currentRoute.step === 'admin' && (
             <div key="step-admin" className="w-full">
               <AdminDashboardView
@@ -395,7 +380,13 @@ export default function App() {
             </div>
           )}
 
-          {/* Fallback if navigated to a service-dependent step without selectedService */}
+          {/* 3. NUEVO: Agregamos la visualización del componente FIXIT Pro */}
+          {currentRoute.step === 'pro' && (
+            <div key="step-pro" className="w-full">
+              <FixitPro />
+            </div>
+          )}
+
           {(currentRoute.step === 'service' || currentRoute.step === 'detail' || currentRoute.step === 'summary') && !activeService && (
             <div key="step-missing-service" className="w-full">
               <div className="w-full max-w-xl mx-auto px-4 py-10 text-center space-y-4">
@@ -416,14 +407,10 @@ export default function App() {
               </div>
             </div>
           )}
-
         </div>
       </main>
 
-      {/* Persistent & Interactive PWA Update Notice */}
       <PWAUpdatePrompt updateState={pwaUpdate} />
-
-      {/* Modern Redesigned Footer */}
       <Footer version={pwaUpdate.currentVersion} hasUpdate={pwaUpdate.hasUpdate} />
     </div>
   );
