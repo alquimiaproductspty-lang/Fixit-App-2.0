@@ -4,7 +4,7 @@ import { Check, Briefcase, Clock, ShieldCheck } from 'lucide-react';
 export default function FixitPro() {
   const handleContact = (plan: string) => {
     const message = `Hola FIXIT. Me interesa el plan corporativo FIXIT Pro: ${plan}. Quisiera agendar una evaluación para mi negocio.`;
-    window.open(`https://wa.me/50762345678?text=${encodeURIComponent(message)}`, '_blank');
+    window.open(`https://wa.me/50761372394?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   return (
