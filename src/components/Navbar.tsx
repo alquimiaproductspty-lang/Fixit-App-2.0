@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogOut, ArrowLeft, User, Shield } from 'lucide-react';
+import { LogOut, ArrowLeft, User, Shield, Briefcase } from 'lucide-react';
 import { authService, AuthState } from '../lib/firebase';
 import { FixitLogo } from './FixitLogo';
 import { UserProfileModal } from './auth/UserProfileModal';
@@ -8,7 +8,7 @@ interface NavbarProps {
   currentView: string;
   canGoBack?: boolean;
   onGoBack?: () => void;
-  onNavigate: (view: 'home' | 'login' | 'register' | 'admin') => void;
+  onNavigate: (view: 'home' | 'login' | 'register' | 'admin' | 'pro') => void;
   authState?: AuthState;
   hasUpdate?: boolean;
 }
@@ -54,6 +54,16 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Navigation & Controls */}
           <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* NUEVO BOTÓN B2B FIXIT PRO */}
+            <button
+              onClick={() => onNavigate('pro')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#082D60]/10 hover:bg-[#082D60]/20 border border-[#082D60]/20 text-xs font-bold text-[#082D60] transition-colors min-h-[36px] cursor-pointer"
+              title="Mantenimiento para negocios"
+            >
+              <Briefcase className="w-3.5 h-3.5" />
+              <span className="hidden xs:inline">Para Negocios</span>
+            </button>
+
             {isLoading ? (
               <div className="w-20 h-7 rounded-full bg-[#DED4C5]/30 animate-pulse" />
             ) : user ? (
