@@ -8,7 +8,8 @@ export type FixitRoute =
   | { step: 'summary'; serviceId: string }
   | { step: 'login' }
   | { step: 'register' }
-  | { step: 'admin' };
+  | { step: 'admin' }
+  | { step: 'pro' }; // 1. Agregado step 'pro'
 
 export type NavigationDirection = 'forward' | 'back' | 'none';
 
@@ -25,6 +26,9 @@ export function parsePath(path: string): FixitRoute {
   }
   if (clean === 'register' || clean === 'registro') {
     return { step: 'register' };
+  }
+  if (clean === 'pro' || clean === 'empresas') { // 2. Agregado parsePath para 'pro'
+    return { step: 'pro' };
   }
   const parts = clean.split('/');
   const prefix = parts[0];
@@ -51,6 +55,7 @@ export function routeToPath(route: FixitRoute): string {
     case 'login': return 'login';
     case 'register': return 'register';
     case 'admin': return 'admin';
+    case 'pro': return 'pro'; // 3. Agregado routeToPath para 'pro'
     case 'category': return `category/${encodeURIComponent(route.categoryId)}`;
     case 'service': return `service/${encodeURIComponent(route.serviceId)}`;
     case 'detail': return `detail/${encodeURIComponent(route.serviceId)}`;
@@ -64,6 +69,7 @@ export function routeToKey(route: FixitRoute): string {
     case 'login': return 'login';
     case 'register': return 'register';
     case 'admin': return 'admin';
+    case 'pro': return 'pro'; // 4. Agregado routeToKey para 'pro'
     case 'category': return `category:${route.categoryId}`;
     case 'service': return `service:${route.serviceId}`;
     case 'detail': return `detail:${route.serviceId}`;
@@ -83,6 +89,7 @@ export function getParentRoute(route: FixitRoute, fallbackCategory?: string): Fi
     case 'category': return { step: 'home' };
     case 'register': return { step: 'login' };
     case 'admin': return { step: 'home' };
+    case 'pro': return { step: 'home' }; // 5. Agregado getParentRoute para volver al inicio desde 'pro'
     case 'login':
     default: return { step: 'home' };
   }
