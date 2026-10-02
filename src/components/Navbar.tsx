@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogOut, ArrowLeft, User, Shield, Briefcase } from 'lucide-react';
+import { LogOut, ArrowLeft, User, Shield } from 'lucide-react';
 import { authService, AuthState } from '../lib/firebase';
 import { FixitLogo } from './FixitLogo';
 import { UserProfileModal } from './auth/UserProfileModal';
@@ -54,14 +54,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Navigation & Controls */}
           <div className="flex items-center gap-2 sm:gap-2.5">
-            {/* NUEVO BOTÓN B2B FIXIT PRO */}
+            
+            {/* BOTÓN B2B FIXIT PRO (Estilo Minimalista Dos Tonos) */}
             <button
               onClick={() => onNavigate('pro')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#082D60]/10 hover:bg-[#082D60]/20 border border-[#082D60]/20 text-xs font-bold text-[#082D60] transition-colors min-h-[36px] cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-[#DED4C5]/30 transition-colors cursor-pointer active:scale-95"
               title="Mantenimiento para negocios"
             >
-              <Briefcase className="w-3.5 h-3.5" />
-              <span className="hidden xs:inline">Para Negocios</span>
+              <span className="font-serif font-black text-[15px] tracking-tight text-[#082D60]">
+                FIXIT
+              </span>
+              <span className="text-[#0B72D9] font-sans font-extrabold text-[10px] uppercase px-1.5 py-0.5 rounded-md bg-[#0B72D9]/10 border border-[#0B72D9]/30 shadow-2xs">
+                PRO
+              </span>
             </button>
 
             {isLoading ? (
