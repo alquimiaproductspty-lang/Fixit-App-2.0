@@ -1,7 +1,7 @@
 import { ServiceRequest, PaintingCalculation, ACInstallationDetails } from '../types';
 
 // Número de WhatsApp oficial de FIXIT Panamá (+507 6137-2394)
-export const FIXIT_WHATSAPP_NUMBER = '50761372394'; 
+export const FIXIT_WHATSAPP_NUMBER = '50765356072'; 
 export const FIXI_WHATSAPP_NUMBER = FIXIT_WHATSAPP_NUMBER;
 
 export interface FixitWhatsAppParams {
