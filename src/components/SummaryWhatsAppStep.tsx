@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Service, ServiceRequest, PaintingCalculation, ACInstallationDetails } from '../types';
-import { getFixitWhatsAppUrl, FixitWhatsAppParams, FIXIT_WHATSAPP_NUMBER, openWhatsAppSafely } from '../lib/whatsapp';
+import { getFixitWhatsAppUrl, FixitWhatsAppParams, openWhatsAppSafely } from '../lib/whatsapp';
 import { uploadPhotosToServer, registerOrderOnServer } from '../lib/api';
 import {
   ArrowLeft,
@@ -11,12 +11,8 @@ import {
   User,
   Phone,
   HelpCircle,
-  ShieldCheck,
   ExternalLink,
-  Copy,
   Check,
-  Upload,
-  Clock,
   RotateCcw,
   Paintbrush,
   Wind,
@@ -110,7 +106,6 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
   const [submitStatusText, setSubmitStatusText] = useState('Preparando solicitud...');
   const [uploadedPhotoUrls, setUploadedPhotoUrls] = useState<string[]>([]);
   const [confirmedOrder, setConfirmedOrder] = useState<ServiceRequest | null>(null);
-  const [copied, setCopied] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPhotoInstructions, setShowPhotoInstructions] = useState(false);
   const hasAutoLocatedRef = useRef(false);
@@ -278,28 +273,6 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
     openWhatsAppSafely(waUrl);
   };
 
-  const handleCopySummary = () => {
-    const params: FixitWhatsAppParams = {
-      orderId: confirmedOrder?.numero_pedido || confirmedOrder?.codigo_seguimiento,
-      category: service.category,
-      serviceName: service.service_name,
-      basePrice: service.price,
-      price: effectivePrice,
-      isDiagnostic: isEvaluationMode,
-      problemDescription: description,
-      photoCount: photos.length,
-      customerName,
-      customerPhone,
-      locationDetails: customerAddress,
-      paintingCalculation,
-      acDetails,
-    };
-    const waUrl = getFixitWhatsAppUrl(params);
-    const decodedMsg = decodeURIComponent(waUrl.split('text=')[1] || '');
-    navigator.clipboard.writeText(decodedMsg);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  };
 
   // If order was confirmed and sent to WhatsApp, display confirmation screen
   if (confirmedOrder) {
@@ -749,7 +722,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
         </div>
       </div>
 
-      {/* MAIN WHATSAPP CTA */}
+      {/* MAIN WHATSAPP CTA ONLY */}
       <div className="space-y-2.5">
         <button
           onClick={prepareAndSendWhatsApp}
@@ -759,15 +732,6 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
         >
           <MessageCircle className="w-5 h-5 fill-white stroke-none" />
           <span>{isSubmitting ? submitStatusText : 'Continuar por WhatsApp'}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={handleCopySummary}
-          className="w-full py-2.5 px-4 rounded-xl bg-transparent hover:bg-[#DED4C5]/30 text-xs font-semibold text-[#756A5D] flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-        >
-          {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
-          <span>{copied ? '¡Texto copiado al portapapeles!' : 'Copiar texto del mensaje'}</span>
         </button>
       </div>
 
@@ -834,4 +798,3 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
     </div>
   );
 };
-
