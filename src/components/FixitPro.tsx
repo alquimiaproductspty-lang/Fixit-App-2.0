@@ -230,13 +230,14 @@ export default function FixitPro({
 
           {/* Action CTAs */}
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3.5">
-            <a
-              href="#planes-pro"
+            {/* NUEVO BOTÓN CON DESPLAZAMIENTO SUAVE NATIVO */}
+            <button
+              onClick={() => document.getElementById('planes-pro')?.scrollIntoView({ behavior: 'smooth' })}
               className="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-[#082D60] hover:bg-[#062248] text-white font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <span>Ver Planes de Suscripción</span>
               <ArrowRight className="w-4 h-4" />
-            </a>
+            </button>
             <a
               href={generalInquiryLink}
               target="_blank"
