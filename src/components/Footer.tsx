@@ -26,7 +26,7 @@ export const Footer: React.FC<FooterProps> = ({
         {/* Canal Directo WhatsApp (Pill Button Moderno) */}
         <div className="pt-2 flex justify-center">
           <a
-            href="https://wa.me/50761372394"
+            href="https://wa.me/50765356072"
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Contactar a FIXIT por WhatsApp"
@@ -40,7 +40,7 @@ export const Footer: React.FC<FooterProps> = ({
             <span>
               WhatsApp:{' '}
               <strong className="font-bold text-slate-900 group-hover:text-[#25D366] transition-colors">
-                +507 6137-2394
+                +507 6535-6072
               </strong>
             </span>
           </a>
