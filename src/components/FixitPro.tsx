@@ -31,7 +31,7 @@ interface FixitProProps {
  */
 export default function FixitPro({ 
   onGoHome,
-  whatsAppPhone = '50761372394' // Tu número comercial
+  whatsAppPhone = '50765356072' // NUEVO número comercial
 }: FixitProProps) {
   // Estado para el acordeón de Términos, Condiciones y Horarios
   const [openAccordion, setOpenAccordion] = useState<number | null>(0);
@@ -230,7 +230,7 @@ export default function FixitPro({
 
           {/* Action CTAs */}
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3.5">
-            {/* NUEVO BOTÓN CON DESPLAZAMIENTO SUAVE NATIVO */}
+            {/* BOTÓN CON DESPLAZAMIENTO SUAVE NATIVO */}
             <button
               onClick={() => document.getElementById('planes-pro')?.scrollIntoView({ behavior: 'smooth' })}
               className="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-[#082D60] hover:bg-[#062248] text-white font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
@@ -675,7 +675,7 @@ export default function FixitPro({
               Mantenimiento preventivo y correctivo por suscripción para locales comerciales en Panamá.
             </p>
             <p className="text-[11px] text-white/50 pt-1">
-              Ciudad de Panamá • WhatsApp Oficial: +507 6137-2394
+              Ciudad de Panamá • WhatsApp Oficial: +507 6535-6072
             </p>
           </div>
 
