@@ -414,4 +414,4 @@ export default function App() {
       <Footer version={pwaUpdate.currentVersion} hasUpdate={pwaUpdate.hasUpdate} />
     </div>
   );
-}
+} 
