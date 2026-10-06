@@ -8,13 +8,18 @@ interface AuthRegisterScreenProps {
   onSuccess?: () => void;
   onNavigateToLogin: () => void;
   onGoBack: () => void;
+  onNavigateToTerms?: () => void;
+  onNavigateToPrivacy?: () => void;
 }
 
 export const AuthRegisterScreen: React.FC<AuthRegisterScreenProps> = ({
   onSuccess,
   onNavigateToLogin,
   onGoBack,
+  onNavigateToTerms,
+  onNavigateToPrivacy,
 }) => {
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -51,6 +56,11 @@ export const AuthRegisterScreen: React.FC<AuthRegisterScreenProps> = ({
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isBusy) return;
+
+    if (!acceptedTerms) {
+      setErrorMessage('Debes aceptar los Términos de Servicio y la Política de Privacidad para continuar.');
+      return;
+    }
 
     if (!name.trim()) {
       setErrorMessage('Por favor ingresa tu nombre completo.');
@@ -281,11 +291,52 @@ export const AuthRegisterScreen: React.FC<AuthRegisterScreenProps> = ({
               </div>
             </div>
 
+            {/* Checkbox Aceptación de Términos y Privacidad */}
+            <div className="pt-1.5 pb-1">
+              <label
+                htmlFor="register-terms-checkbox"
+                className="flex items-start gap-2.5 text-xs text-[#756A5D] cursor-pointer select-none leading-relaxed"
+              >
+                <input
+                  id="register-terms-checkbox"
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  disabled={isBusy}
+                  className="mt-0.5 h-4 w-4 rounded border-[#DED4C5] text-[#082D60] focus:ring-[#0988F5] accent-[#082D60] cursor-pointer shrink-0"
+                />
+                <span>
+                  He leído y acepto los{' '}
+                  <a
+                    href="/terminos"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#0B72D9] font-medium hover:underline"
+                  >
+                    Términos de Servicio
+                  </a>{' '}
+                  y la{' '}
+                  <a
+                    href="/privacidad"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#0B72D9] font-medium hover:underline"
+                  >
+                    Política de Privacidad
+                  </a>
+                </span>
+              </label>
+            </div>
+
             {/* Crear Cuenta Button */}
             <button
               type="submit"
-              disabled={isBusy}
-              className="w-full py-3 px-4 mt-2 rounded-2xl bg-[#082D60] hover:bg-[#062248] text-white font-semibold text-xs sm:text-sm active:scale-[0.99] transition-all cursor-pointer shadow-xs disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={isBusy || !acceptedTerms}
+              className={`w-full py-3 px-4 mt-2 rounded-2xl bg-[#082D60] hover:bg-[#062248] text-white font-semibold text-xs sm:text-sm active:scale-[0.99] transition-all flex items-center justify-center gap-2 ${
+                !acceptedTerms || isBusy
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'cursor-pointer shadow-xs'
+              }`}
               id="btn-register-submit"
             >
               {isRegisterLoading ? (

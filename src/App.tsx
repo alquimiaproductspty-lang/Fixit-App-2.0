@@ -258,6 +258,8 @@ export default function App() {
         onSuccess={() => navigate({ step: 'home' }, true)}
         onNavigateToLogin={() => navigate({ step: 'login' })}
         onGoBack={() => goBack({ step: 'login' })}
+        onNavigateToTerms={() => navigate({ step: 'terms' })}
+        onNavigateToPrivacy={() => navigate({ step: 'privacy' })}
       />
     );
   }
