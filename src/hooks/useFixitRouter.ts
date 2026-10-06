@@ -10,7 +10,8 @@ export type FixitRoute =
   | { step: 'register' }
   | { step: 'admin' }
   | { step: 'pro' }
-  | { step: 'privacy' }; // Agregado step 'privacy'
+  | { step: 'privacy' }
+  | { step: 'terms' }; // Agregado step 'terms'
 
 export type NavigationDirection = 'forward' | 'back' | 'none';
 
@@ -33,6 +34,9 @@ export function parsePath(path: string): FixitRoute {
   }
   if (clean === 'privacidad' || clean === 'privacy' || clean === 'privacy-policy' || clean === 'politica-de-privacidad' || clean === 'politica-privacidad') {
     return { step: 'privacy' };
+  }
+  if (clean === 'terminos' || clean === 'terms' || clean === 'terms-of-service' || clean === 'terminos-de-servicio' || clean === 'terminos-y-condiciones') {
+    return { step: 'terms' };
   }
   const parts = clean.split('/');
   const prefix = parts[0];
@@ -61,6 +65,7 @@ export function routeToPath(route: FixitRoute): string {
     case 'admin': return 'admin';
     case 'pro': return 'pro'; // 3. Agregado routeToPath para 'pro'
     case 'privacy': return 'privacidad';
+    case 'terms': return 'terminos';
     case 'category': return `category/${encodeURIComponent(route.categoryId)}`;
     case 'service': return `service/${encodeURIComponent(route.serviceId)}`;
     case 'detail': return `detail/${encodeURIComponent(route.serviceId)}`;
@@ -76,6 +81,7 @@ export function routeToKey(route: FixitRoute): string {
     case 'admin': return 'admin';
     case 'pro': return 'pro'; // 4. Agregado routeToKey para 'pro'
     case 'privacy': return 'privacy';
+    case 'terms': return 'terms';
     case 'category': return `category:${route.categoryId}`;
     case 'service': return `service:${route.serviceId}`;
     case 'detail': return `detail:${route.serviceId}`;
@@ -97,6 +103,7 @@ export function getParentRoute(route: FixitRoute, fallbackCategory?: string): Fi
     case 'admin': return { step: 'home' };
     case 'pro': return { step: 'home' }; // 5. Agregado getParentRoute para volver al inicio desde 'pro'
     case 'privacy': return { step: 'home' };
+    case 'terms': return { step: 'home' };
     case 'login':
     default: return { step: 'home' };
   }

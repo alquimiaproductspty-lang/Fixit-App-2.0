@@ -5,12 +5,14 @@ interface FooterProps {
   version?: string;
   hasUpdate?: boolean;
   onNavigatePrivacy?: () => void;
+  onNavigateTerms?: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   version = APP_VERSION,
   hasUpdate = false,
   onNavigatePrivacy,
+  onNavigateTerms,
 }) => {
   return (
     <footer className="bg-slate-50/80 border-t border-slate-200 py-8 px-4 text-center">
@@ -64,6 +66,19 @@ export const Footer: React.FC<FooterProps> = ({
               className="text-slate-500 hover:text-[#0B72D9] transition-colors underline cursor-pointer"
             >
               Política de Privacidad
+            </a>
+            <span className="text-slate-300">•</span>
+            <a
+              href="/terminos"
+              onClick={(e) => {
+                if (onNavigateTerms) {
+                  e.preventDefault();
+                  onNavigateTerms();
+                }
+              }}
+              className="text-slate-500 hover:text-[#0B72D9] transition-colors underline cursor-pointer"
+            >
+              Términos de Servicio
             </a>
           </div>
           <div className="flex items-center gap-1.5 font-mono">

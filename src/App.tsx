@@ -21,9 +21,10 @@ import { FIXIT_WHATSAPP_NUMBER, openWhatsAppSafely, generateDirectWhatsAppLink }
 import { RotateCcw, ArrowRight } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 
-// 1. NUEVO: Importamos el componente de FIXIT Pro y Política de Privacidad
+// 1. NUEVO: Importamos FIXIT Pro, Política de Privacidad y Términos de Servicio
 import FixitPro from './components/FixitPro'; 
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import TermsOfService from './pages/TermsOfService';
 
 const STORAGE_KEY_FIXIT_DRAFT = 'fixit_customer_draft_v2';
 
@@ -290,6 +291,8 @@ export default function App() {
             navigate({ step: 'pro' });
           } else if (view === 'privacy') {
             navigate({ step: 'privacy' });
+          } else if (view === 'terms') {
+            navigate({ step: 'terms' });
           } else {
             navigate({ step: 'home' });
           }
@@ -420,6 +423,16 @@ export default function App() {
             </div>
           )}
 
+          {/* 5. NUEVO: Agregamos la visualización de Términos de Servicio */}
+          {currentRoute.step === 'terms' && (
+            <div key="step-terms" className="w-full">
+              <TermsOfService
+                onBack={() => goBack({ step: 'home' })}
+                onGoHome={() => navigate({ step: 'home' })}
+              />
+            </div>
+          )}
+
           {(currentRoute.step === 'service' || currentRoute.step === 'detail' || currentRoute.step === 'summary') && !activeService && (
             <div key="step-missing-service" className="w-full">
               <div className="w-full max-w-xl mx-auto px-4 py-10 text-center space-y-4">
@@ -448,6 +461,7 @@ export default function App() {
         version={pwaUpdate.currentVersion}
         hasUpdate={pwaUpdate.hasUpdate}
         onNavigatePrivacy={() => navigate({ step: 'privacy' })}
+        onNavigateTerms={() => navigate({ step: 'terms' })}
       />
     </div>
   );

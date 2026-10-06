@@ -8,7 +8,7 @@ interface NavbarProps {
   currentView: string;
   canGoBack?: boolean;
   onGoBack?: () => void;
-  onNavigate: (view: 'home' | 'login' | 'register' | 'admin' | 'pro' | 'privacy') => void;
+  onNavigate: (view: 'home' | 'login' | 'register' | 'admin' | 'pro' | 'privacy' | 'terms') => void;
   authState?: AuthState;
   hasUpdate?: boolean;
 }
