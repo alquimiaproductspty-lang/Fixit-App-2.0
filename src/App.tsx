@@ -21,8 +21,9 @@ import { FIXIT_WHATSAPP_NUMBER, openWhatsAppSafely, generateDirectWhatsAppLink }
 import { RotateCcw, ArrowRight } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 
-// 1. NUEVO: Importamos el componente de FIXIT Pro
+// 1. NUEVO: Importamos el componente de FIXIT Pro y Política de Privacidad
 import FixitPro from './components/FixitPro'; 
+import PrivacyPolicy from './pages/PrivacyPolicy';
 
 const STORAGE_KEY_FIXIT_DRAFT = 'fixit_customer_draft_v2';
 
@@ -287,6 +288,8 @@ export default function App() {
           } else if (view === 'pro') {
             // 2. NUEVO: Agregamos la ruta en la navegación principal
             navigate({ step: 'pro' });
+          } else if (view === 'privacy') {
+            navigate({ step: 'privacy' });
           } else {
             navigate({ step: 'home' });
           }
@@ -407,6 +410,16 @@ export default function App() {
             </div>
           )}
 
+          {/* 4. NUEVO: Agregamos la visualización de la Política de Privacidad */}
+          {currentRoute.step === 'privacy' && (
+            <div key="step-privacy" className="w-full">
+              <PrivacyPolicy
+                onBack={() => goBack({ step: 'home' })}
+                onGoHome={() => navigate({ step: 'home' })}
+              />
+            </div>
+          )}
+
           {(currentRoute.step === 'service' || currentRoute.step === 'detail' || currentRoute.step === 'summary') && !activeService && (
             <div key="step-missing-service" className="w-full">
               <div className="w-full max-w-xl mx-auto px-4 py-10 text-center space-y-4">
@@ -431,7 +444,11 @@ export default function App() {
       </main>
 
       <PWAUpdatePrompt updateState={pwaUpdate} />
-      <Footer version={pwaUpdate.currentVersion} hasUpdate={pwaUpdate.hasUpdate} />
+      <Footer
+        version={pwaUpdate.currentVersion}
+        hasUpdate={pwaUpdate.hasUpdate}
+        onNavigatePrivacy={() => navigate({ step: 'privacy' })}
+      />
     </div>
   );
 } 

@@ -4,11 +4,13 @@ import { APP_VERSION } from '../config/version';
 interface FooterProps {
   version?: string;
   hasUpdate?: boolean;
+  onNavigatePrivacy?: () => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   version = APP_VERSION,
   hasUpdate = false,
+  onNavigatePrivacy,
 }) => {
   return (
     <footer className="bg-slate-50/80 border-t border-slate-200 py-8 px-4 text-center">
@@ -46,9 +48,24 @@ export const Footer: React.FC<FooterProps> = ({
           </a>
         </div>
 
-        {/* Micro-información: Copyright y Versión */}
+        {/* Micro-información: Copyright, Enlaces Legales y Versión */}
         <div className="pt-6 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-400">
-          <p>© 2026 FIXIT Panamá. Todos los derechos reservados.</p>
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-2 gap-y-1">
+            <p>© 2026 FIXIT Panamá. Todos los derechos reservados.</p>
+            <span className="hidden sm:inline text-slate-300">•</span>
+            <a
+              href="/privacidad"
+              onClick={(e) => {
+                if (onNavigatePrivacy) {
+                  e.preventDefault();
+                  onNavigatePrivacy();
+                }
+              }}
+              className="text-slate-500 hover:text-[#0B72D9] transition-colors underline cursor-pointer"
+            >
+              Política de Privacidad
+            </a>
+          </div>
           <div className="flex items-center gap-1.5 font-mono">
             <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px] text-slate-500 font-semibold border border-slate-200/60">
               v{version}
