@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { CustomerData, Service, ServiceCategory, PaintingCalculation, ACInstallationDetails } from './types';
 import { getServiceById, FIXIT_CATALOG } from './data/catalog';
 import { authService, AuthState } from './lib/firebase';
@@ -122,6 +122,21 @@ export default function App() {
 
   useEffect(() => {
     try {
+      if (
+        !activeService &&
+        !problemDescription &&
+        photos.length === 0 &&
+        !customerName &&
+        !customerPhone &&
+        !customerAddress &&
+        !paintingCalculation &&
+        !acDetails &&
+        !adjustedPrice
+      ) {
+        localStorage.removeItem(STORAGE_KEY_FIXIT_DRAFT);
+        return;
+      }
+
       const draft = {
         serviceId: activeService?.id,
         selectedCategory: activeCategory,
@@ -151,18 +166,19 @@ export default function App() {
     adjustedPrice,
   ]);
 
+  const userPrefilledRef = useRef(false);
+
   useEffect(() => {
     const unsub = authService.subscribe((state) => {
       setAuthState(state);
-      if (state.user && !customerName) {
-        setCustomerName(state.user.nombre || '');
-      }
-      if (state.user && !customerPhone) {
-        setCustomerPhone(state.user.telefono || '');
+      if (state.user && !userPrefilledRef.current) {
+        userPrefilledRef.current = true;
+        setCustomerName((prev) => prev || state.user?.nombre || '');
+        setCustomerPhone((prev) => prev || state.user?.telefono || '');
       }
     });
     return () => unsub();
-  }, [customerName, customerPhone]);
+  }, []);
 
   useEffect(() => {
     if (authState.user && (currentRoute.step === 'login' || currentRoute.step === 'register')) {
@@ -209,9 +225,13 @@ export default function App() {
     try {
       localStorage.removeItem(STORAGE_KEY_FIXIT_DRAFT);
     } catch {}
+    userPrefilledRef.current = false;
     setSelectedService(null);
     setProblemDescription('');
     setPhotos([]);
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerAddress('');
     setPaintingCalculation(null);
     setAcDetails(null);
     setAdjustedPrice(null);

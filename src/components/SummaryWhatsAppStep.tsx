@@ -271,12 +271,29 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
 
     // Open WhatsApp safely in an external context
     openWhatsAppSafely(waUrl);
+
+    // Limpieza de estado y formulario al enviar el pedido para evitar duplicación de datos
+    try {
+      localStorage.removeItem('fixit_customer_draft_v2');
+    } catch (e) {
+      console.warn('Error al limpiar borrador:', e);
+    }
+    onChangeCustomerName('');
+    onChangeCustomerPhone('');
+    onChangeCustomerAddress('');
+    if (onReset) {
+      onReset();
+    }
   };
 
 
   // If order was confirmed and sent to WhatsApp, display confirmation screen
   if (confirmedOrder) {
     const orderCode = confirmedOrder.numero_pedido || confirmedOrder.codigo_seguimiento;
+    const clientName = confirmedOrder.cliente?.nombre || customerName;
+    const clientPhone = confirmedOrder.cliente?.telefono || customerPhone;
+    const clientAddress = confirmedOrder.direccion || customerAddress;
+
     const waUrl = getFixitWhatsAppUrl({
       orderId: orderCode,
       category: service.category,
@@ -286,9 +303,9 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
       isDiagnostic: isEvaluationMode,
       problemDescription: description,
       photoCount: photos.length,
-      customerName,
-      customerPhone,
-      locationDetails: customerAddress,
+      customerName: clientName,
+      customerPhone: clientPhone,
+      locationDetails: clientAddress,
       paintingCalculation,
       acDetails,
     });
@@ -319,11 +336,11 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
             </div>
             <div className="flex justify-between border-b border-[#DED4C5]/60 pb-2">
               <span className="text-[#756A5D]">Cliente:</span>
-              <span className="font-semibold text-[#082D60]">{customerName}</span>
+              <span className="font-semibold text-[#082D60]">{clientName}</span>
             </div>
             <div className="flex justify-between border-b border-[#DED4C5]/60 pb-2">
               <span className="text-[#756A5D]">Teléfono:</span>
-              <span className="font-semibold text-[#082D60]">{customerPhone}</span>
+              <span className="font-semibold text-[#082D60]">{clientPhone}</span>
             </div>
             <div className="flex justify-between border-b border-[#DED4C5]/60 pb-2">
               <span className="text-[#756A5D]">Tarifa estimada:</span>
