@@ -6,6 +6,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
+  signInAnonymously,
   signOut as fbSignOut,
   onAuthStateChanged,
   setPersistence,
@@ -340,7 +341,39 @@ export const authService = {
       notifyAuthListeners();
       return activeUser;
     } catch (err: any) {
-      console.error('[FIXIT Auth Error] loginWithGoogle error:', err);
+      console.warn('[FIXIT Auth] loginWithGoogle notice:', err?.message || err);
+      currentAuthState = { ...currentAuthState, loading: false, error: err.message };
+      notifyAuthListeners();
+      throw err;
+    }
+  },
+
+  // Anonymous Guest Sign-In (Frictionless entry)
+  async loginAnonymously(): Promise<ActiveUser> {
+    currentAuthState = { ...currentAuthState, loading: true, error: null };
+    notifyAuthListeners();
+
+    try {
+      const result = await signInAnonymously(auth);
+      const activeUser = await syncUserWithFirestore(result.user);
+      currentAuthState = { user: activeUser, loading: false, error: null };
+      notifyAuthListeners();
+      return activeUser;
+    } catch (err: any) {
+      console.warn('[FIXIT Auth] loginAnonymously notice:', err?.message || err);
+      // Graceful local guest fallback if Anonymous Auth provider is not enabled in Firebase Console
+      if (err?.code === 'auth/operation-not-allowed' || err?.code === 'auth/admin-restricted-operation') {
+        const fallbackGuest: ActiveUser = buildActiveUser(
+          'guest-' + Date.now(),
+          '',
+          'Invitado FIXIT',
+          'CLIENT',
+          'ACTIVE'
+        );
+        currentAuthState = { user: fallbackGuest, loading: false, error: null };
+        notifyAuthListeners();
+        return fallbackGuest;
+      }
       currentAuthState = { ...currentAuthState, loading: false, error: err.message };
       notifyAuthListeners();
       throw err;
@@ -410,7 +443,7 @@ export const authService = {
       notifyAuthListeners();
       return activeUser;
     } catch (err: any) {
-      console.error('[FIXIT Auth Error] registerClient error:', err);
+      console.warn('[FIXIT Auth] registerClient notice:', err?.message || err);
       currentAuthState = { user: null, loading: false, error: err.message };
       notifyAuthListeners();
       throw err;
@@ -481,7 +514,7 @@ export const authService = {
     try {
       await sendPasswordResetEmail(auth, email.trim());
     } catch (err: any) {
-      console.error('[FIXIT Auth Error] resetPassword error:', err);
+      console.warn('[FIXIT Auth] resetPassword notice:', err?.message || err);
       throw err;
     }
   },

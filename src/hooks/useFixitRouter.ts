@@ -194,12 +194,12 @@ export function useFixitRouter() {
   }, []);
 
   const goBack = useCallback((fallbackRoute?: FixitRoute) => {
-    if (historyIndexRef.current > 0) {
+    if (fallbackRoute) {
+      navigate(fallbackRoute);
+    } else if (historyIndexRef.current > 0 && typeof window !== 'undefined' && window.history.length > 1) {
       window.history.back();
-    } else if (fallbackRoute) {
-      navigate(fallbackRoute, true);
     } else {
-      navigate(getParentRoute(currentRouteRef.current), true);
+      navigate(getParentRoute(currentRouteRef.current));
     }
   }, [navigate]);
 

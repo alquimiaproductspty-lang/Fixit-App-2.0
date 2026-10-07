@@ -12,7 +12,7 @@ export interface FixitWhatsAppParams {
   price: number;
   isDiagnostic?: boolean;
   problemDescription?: string;
-  photoCount: number;
+  photoCount?: number;
   customerName: string;
   customerPhone: string;
   locationDetails?: string;
@@ -113,12 +113,9 @@ export function generateFixitWhatsAppMessage(params: FixitWhatsAppParams): strin
   const desc = problemDescription?.trim() || 'Sin descripción adicional.';
   msg += `📝 *Descripción del problema:*\n${desc}\n\n`;
 
-  // Explicit, honest indication of selected photos without fake links
-  if (photoCount > 0) {
-    msg += `📷 *Fotografías seleccionadas:* ${photoCount} ${photoCount === 1 ? 'fotografía seleccionada' : 'fotografías seleccionadas'} en la app.\n`;
-    msg += `*(Adjuntando ${photoCount === 1 ? 'la fotografía' : 'las fotografías'} directamente a continuación en este chat)*\n\n`;
-  } else {
-    msg += `📷 *Fotografías:* Solicitud enviada sin fotografías adjuntas.\n\n`;
+  // Explicit indication of selected photos only if provided
+  if (photoCount && photoCount > 0) {
+    msg += `📷 *Fotografías seleccionadas:* ${photoCount} ${photoCount === 1 ? 'fotografía seleccionada' : 'fotografías seleccionadas'}.\n\n`;
   }
 
   if (locationDetails?.trim()) {

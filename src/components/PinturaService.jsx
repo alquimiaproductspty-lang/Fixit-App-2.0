@@ -174,26 +174,36 @@ export const PinturaService = ({
     }
   };
 
+  // Manejo de volver a la página principal
+  const handleRegresar = (e) => {
+    if (e) e.preventDefault();
+    if (typeof onBack === 'function') {
+      onBack();
+    } else {
+      try {
+        window.history.pushState({ route: { step: 'home' }, fixitIdx: 0 }, '', '/');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      } catch {
+        window.location.href = '/';
+      }
+    }
+  };
+
   return (
     <div className="w-full max-w-2xl sm:max-w-3xl mx-auto px-4 py-5 sm:py-8 space-y-7 font-sans text-[#1F2421]">
       {/* Encabezado / Botón Volver y Badge de Garantía */}
       <div className="flex items-center justify-between">
-        {onBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-[#DED4C5] bg-[#FFFEFA] hover:bg-[#F6F4EF] text-xs font-semibold text-[#1F2421] transition-colors cursor-pointer shadow-2xs active:scale-95"
-            id="btn-back-pintura"
-          >
-            <ArrowLeft className="w-4 h-4 text-[#756A5D]" />
-            <span>Volver</span>
-          </button>
-        ) : (
-          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#0B72D9]">
-            <Paintbrush className="w-4 h-4" />
-            <span>Calculadora FIXIT</span>
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={handleRegresar}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-[#DED4C5] bg-[#FFFEFA] hover:bg-[#F6F4EF] text-xs font-semibold text-[#1F2421] transition-colors cursor-pointer shadow-2xs active:scale-95"
+          id="btn-back-pintura"
+          title="Volver a la página principal"
+          aria-label="Regresar a la página principal"
+        >
+          <ArrowLeft className="w-4 h-4 text-[#756A5D]" />
+          <span>Volver al inicio</span>
+        </button>
 
         <div className="flex items-center gap-2 text-xs font-semibold text-[#082D60] bg-[#082D60]/5 border border-[#082D60]/15 px-3 py-1 rounded-full">
           <ShieldCheck className="w-3.5 h-3.5 text-[#53653D]" />

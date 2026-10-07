@@ -1,30 +1,24 @@
 import React, { useState } from 'react';
 import { FixitLogo } from '../FixitLogo';
-import { ArrowLeft, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, ShieldCheck, CheckCircle2, Sparkles, User } from 'lucide-react';
 import { authService } from '../../lib/firebase';
 import { mapAuthErrorToFriendlyMessage } from '../../lib/authErrors';
-import { AuthForgotPasswordModal } from './AuthForgotPasswordModal';
 
 interface AuthLoginScreenProps {
   onSuccess?: () => void;
-  onNavigateToRegister: () => void;
+  onNavigateToRegister?: () => void;
   onGoBack: () => void;
 }
 
 export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
   onSuccess,
-  onNavigateToRegister,
   onGoBack,
 }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [isEmailLoading, setIsEmailLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isGuestLoading, setIsGuestLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
 
-  const isBusy = isEmailLoading || isGoogleLoading;
+  const isBusy = isGoogleLoading || isGuestLoading;
 
   const handleGoogleSignIn = async () => {
     if (isBusy) return;
@@ -45,20 +39,13 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
     }
   };
 
-  const handleEmailSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGuestSignIn = async () => {
     if (isBusy) return;
-
-    if (!email.trim() || !password) {
-      setErrorMessage('Por favor ingresa tu correo y contraseña.');
-      return;
-    }
-
-    setIsEmailLoading(true);
+    setIsGuestLoading(true);
     setErrorMessage(null);
 
     try {
-      await authService.loginWithEmail(email.trim(), password);
+      await authService.loginAnonymously();
       if (onSuccess) {
         onSuccess();
       } else {
@@ -67,7 +54,7 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
     } catch (err: unknown) {
       setErrorMessage(mapAuthErrorToFriendlyMessage(err));
     } finally {
-      setIsEmailLoading(false);
+      setIsGuestLoading(false);
     }
   };
 
@@ -94,47 +81,51 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
 
       {/* Main Login Card */}
       <main className="max-w-md w-full mx-auto my-auto py-6">
-        <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-6 sm:p-8 shadow-md shadow-[#082D60]/5 space-y-6">
+        <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-6 sm:p-8 shadow-md shadow-[#082D60]/5 space-y-6 text-center">
           {/* Brand Header */}
-          <div className="text-center space-y-2">
+          <div className="space-y-2">
             <div className="flex justify-center mb-1">
-              <FixitLogo variant="horizontal" size={44} />
+              <FixitLogo variant="horizontal" size={46} />
             </div>
             <p className="text-xs font-medium text-[#756A5D]">
               Soluciones para tu hogar
             </p>
             <h1 className="text-xl sm:text-2xl font-serif font-bold text-[#082D60] pt-1">
-              Ingresa a tu cuenta
+              Bienvenido a FIXIT
             </h1>
+            <p className="text-xs text-[#756A5D] max-w-xs mx-auto leading-relaxed">
+              Inicia sesión o regístrate en 1 solo clic. Rápido, seguro y sin contraseñas que recordar.
+            </p>
           </div>
 
           {/* Friendly Error Banner */}
           {errorMessage && (
             <div 
-              className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs leading-relaxed transition-all"
+              className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs leading-relaxed transition-all text-left"
               role="alert"
             >
-              {errorMessage}
+              <p>{errorMessage}</p>
             </div>
           )}
 
-          {/* Google Sign-In Button */}
-          <div className="space-y-4">
+          {/* Main Action Buttons */}
+          <div className="pt-2 pb-1 space-y-3">
+            {/* Google Sign-In Main Button */}
             <button
               type="button"
               onClick={handleGoogleSignIn}
               disabled={isBusy}
-              className="w-full py-3 px-4 rounded-2xl border border-[#DED4C5] bg-[#FFFEFA] hover:bg-[#F6F4EF] active:scale-[0.99] text-[#082D60] font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-3 cursor-pointer shadow-2xs disabled:opacity-50"
+              className="w-full py-4 px-6 rounded-2xl bg-white hover:bg-[#FDFCF9] border-2 border-[#DED4C5] hover:border-[#0B72D9] text-[#082D60] font-semibold text-sm sm:text-base transition-all flex items-center justify-center gap-3 cursor-pointer shadow-sm hover:shadow-md active:scale-[0.99] disabled:opacity-50 group"
               id="btn-google-login"
             >
               {isGoogleLoading ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin text-[#082D60]" />
+                  <Loader2 className="w-5 h-5 animate-spin text-[#082D60]" />
                   <span>Conectando con Google...</span>
                 </>
               ) : (
                 <>
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 shrink-0 group-hover:scale-105 transition-transform" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -157,115 +148,59 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
               )}
             </button>
 
-            {/* Subtle Divider "o" */}
-            <div className="relative flex items-center justify-center my-2">
-              <div className="border-t border-[#DED4C5] w-full" />
-              <span className="bg-[#FFFEFA] px-3 text-xs text-[#756A5D] font-medium lowercase">
-                o
-              </span>
-              <div className="border-t border-[#DED4C5] w-full" />
-            </div>
-
-            {/* Email / Password Form */}
-            <form onSubmit={handleEmailSignIn} className="space-y-4">
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="login-email-input"
-                  className="block text-xs font-semibold text-[#082D60]"
-                >
-                  Correo electrónico
-                </label>
-                <div className="relative">
-                  <input
-                    id="login-email-input"
-                    type="email"
-                    required
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="ejemplo@correo.com"
-                    disabled={isBusy}
-                    className="w-full py-2.5 pl-9 pr-3 rounded-2xl border border-[#DED4C5] bg-[#F6F4EF] text-xs text-[#082D60] placeholder-[#756A5D]/60 focus:bg-[#FFFEFA] focus:border-[#0988F5] focus:outline-none transition-colors disabled:opacity-50"
-                  />
-                  <Mail className="w-4 h-4 text-[#756A5D] absolute left-3 top-3 pointer-events-none" />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label
-                    htmlFor="login-password-input"
-                    className="block text-xs font-semibold text-[#082D60]"
-                  >
-                    Contraseña
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setIsForgotModalOpen(true)}
-                    disabled={isBusy}
-                    className="text-[11px] font-semibold text-[#0988F5] hover:underline cursor-pointer"
-                  >
-                    ¿Olvidaste tu contraseña?
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    id="login-password-input"
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    disabled={isBusy}
-                    className="w-full py-2.5 pl-9 pr-10 rounded-2xl border border-[#DED4C5] bg-[#F6F4EF] text-xs text-[#082D60] placeholder-[#756A5D]/60 focus:bg-[#FFFEFA] focus:border-[#0988F5] focus:outline-none transition-colors disabled:opacity-50"
-                  />
-                  <Lock className="w-4 h-4 text-[#756A5D] absolute left-3 top-3 pointer-events-none" />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    tabIndex={-1}
-                    aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
-                    className="absolute right-3 top-2.5 text-[#756A5D] hover:text-[#082D60] p-0.5 cursor-pointer"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isBusy}
-                className="w-full py-3 px-4 rounded-2xl bg-[#082D60] hover:bg-[#062248] text-white font-semibold text-xs sm:text-sm active:scale-[0.99] transition-all cursor-pointer shadow-xs disabled:opacity-50 flex items-center justify-center gap-2"
-                id="btn-login-submit"
-              >
-                {isEmailLoading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-white" />
-                    <span>Iniciando sesión...</span>
-                  </>
-                ) : (
-                  <span>Iniciar sesión</span>
-                )}
-              </button>
-            </form>
-          </div>
-
-          {/* Create Account Link */}
-          <div className="pt-4 border-t border-[#DED4C5]/60 text-center">
-            <span className="text-xs text-[#756A5D] mr-1.5">
-              ¿Aún no tienes cuenta?
-            </span>
+            {/* Guest / Explore Without Account Button */}
             <button
               type="button"
-              onClick={onNavigateToRegister}
+              onClick={handleGuestSignIn}
               disabled={isBusy}
-              className="text-xs font-bold text-[#0988F5] hover:underline cursor-pointer"
-              id="link-create-account"
+              className="w-full py-3 px-4 rounded-2xl bg-[#F6F4EF] hover:bg-[#EFECE4] active:scale-[0.99] text-[#756A5D] hover:text-[#082D60] font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer border border-[#DED4C5]/80 disabled:opacity-50"
+              id="btn-guest-login"
             >
-              Crear una cuenta
+              {isGuestLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-[#756A5D]" />
+                  <span>Iniciando como invitado...</span>
+                </>
+              ) : (
+                <>
+                  <User className="w-4 h-4 text-[#756A5D]" />
+                  <span>Continuar como Invitado</span>
+                </>
+              )}
             </button>
+            <p className="text-[11px] text-[#756A5D]/80">
+              Explora servicios y cotiza de inmediato sin necesidad de registro
+            </p>
           </div>
+
+          {/* Benefits & Trust Points */}
+          <div className="pt-2 border-t border-[#DED4C5]/60 space-y-2.5 text-left">
+            <div className="flex items-center gap-2.5 text-xs text-[#756A5D]">
+              <CheckCircle2 className="w-4 h-4 text-[#0B72D9] shrink-0" />
+              <span>Acceso inmediato a tus cotizaciones y solicitudes</span>
+            </div>
+            <div className="flex items-center gap-2.5 text-xs text-[#756A5D]">
+              <Sparkles className="w-4 h-4 text-[#0B72D9] shrink-0" />
+              <span>Sin formularios largos ni contraseñas adicionales</span>
+            </div>
+            <div className="flex items-center gap-2.5 text-xs text-[#756A5D]">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Tus datos están protegidos y nunca se comparten</span>
+            </div>
+          </div>
+
+          {/* Legal Note */}
+          <p className="text-[11px] text-[#756A5D]/80 leading-relaxed pt-2">
+            Al continuar con Google, aceptas los{' '}
+            <a href="/terminos" target="_blank" rel="noopener noreferrer" className="text-[#0B72D9] hover:underline">
+              Términos de Servicio
+            </a>{' '}
+            y la{' '}
+            <a href="/privacidad" target="_blank" rel="noopener noreferrer" className="text-[#0B72D9] hover:underline">
+              Política de Privacidad
+            </a>{' '}
+            de FIXIT.
+          </p>
         </div>
       </main>
 
@@ -273,13 +208,6 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
       <footer className="max-w-md w-full mx-auto text-center text-[11px] text-[#756A5D]/80">
         FIXIT © {new Date().getFullYear()} — Servicios residenciales en Panamá
       </footer>
-
-      {/* Forgot Password Modal */}
-      <AuthForgotPasswordModal
-        isOpen={isForgotModalOpen}
-        onClose={() => setIsForgotModalOpen(false)}
-        initialEmail={email}
-      />
     </div>
   );
 };

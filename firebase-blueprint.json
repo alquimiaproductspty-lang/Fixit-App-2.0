@@ -299,6 +299,19 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["userId", "token", "createdAt"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Cita u horario reservado o bloqueado en la agenda para control de disponibilidad",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "date": { "type": "string", "maxLength": 32 },
+        "time": { "type": "string", "maxLength": 32 },
+        "clientInfo": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["date", "time"]
     }
   },
   "firestore": {
@@ -313,6 +326,10 @@
     "/services/{serviceId}": {
       "schema": "Service",
       "description": "Catálogo central de servicios FIXIT con precios y modalidades"
+    },
+    "/appointments/{appointmentId}": {
+      "schema": "Appointment",
+      "description": "Horarios y citas reservadas o bloqueadas para disponibilidad en FIXIT"
     },
     "/requests/{requestId}": {
       "schema": "ServiceRequest",

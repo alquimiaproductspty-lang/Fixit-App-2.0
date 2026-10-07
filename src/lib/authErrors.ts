@@ -8,8 +8,8 @@
  */
 
 export function mapAuthErrorToFriendlyMessage(error: unknown): string {
-  // Always log full technical error to console first
-  console.error('[FIXIT Auth Error]:', error);
+  // Log authentication note to console for debugging
+  console.warn('[FIXIT Auth]:', error);
 
   if (!error) {
     return 'Ocurrió un error inesperado. Por favor intenta nuevamente.';
@@ -58,9 +58,16 @@ export function mapAuthErrorToFriendlyMessage(error: unknown): string {
     return 'El acceso con Google no pudo completarse. Puedes continuar con correo y contraseña.';
   }
 
-  // 5. Configuración de Google OAuth / Provider no habilitado o restringido (403 restricted_client)
+  // 5. Método de autenticación no habilitado en Firebase Console (operation-not-allowed)
   if (
     errCode === 'auth/operation-not-allowed' ||
+    errString.includes('operation-not-allowed')
+  ) {
+    return 'El inicio de sesión con correo y contraseña no está habilitado en este proyecto de Firebase. Por favor utiliza el botón "Continuar con Google".';
+  }
+
+  // 6. Configuración de Google OAuth / Provider no habilitado o restringido (403 restricted_client)
+  if (
     errCode === 'auth/configuration-not-found' ||
     errString.includes('not yet configured to make OAuth requests') ||
     errString.includes('restricted_client') ||
@@ -69,7 +76,7 @@ export function mapAuthErrorToFriendlyMessage(error: unknown): string {
     errString.includes('unauthorized_client') ||
     errString.includes('access_denied')
   ) {
-    return 'El acceso con Google no pudo completarse. Puedes continuar con correo y contraseña.';
+    return 'El acceso con Google no pudo completarse. Por favor intenta nuevamente o contacta a soporte.';
   }
 
   // 6. Cuenta existente con credencial diferente

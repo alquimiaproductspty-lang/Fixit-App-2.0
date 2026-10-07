@@ -112,6 +112,14 @@ service cloud.firestore {
       data.cliente.telefono is string && data.cliente.telefono.size() <= 40;
     }
 
+    function isValidAppointment(data) {
+      return data.keys().hasAll(['date', 'time']) &&
+        data.keys().hasOnly(['date', 'time', 'clientInfo', 'createdAt']) &&
+        data.date is string && data.date.size() > 0 && data.date.size() <= 32 &&
+        data.time is string && data.time.size() > 0 && data.time.size() <= 32 &&
+        (!('clientInfo' in data) || (data.clientInfo is string && data.clientInfo.size() <= 200));
+    }
+
     // =========================================================================
     // Connection health check doc (mandatory per Firebase skill)
     // =========================================================================
@@ -226,6 +234,15 @@ service cloud.firestore {
     match /services/{serviceId} {
       allow read: if true;
       allow write: if isOperator();
+    }
+
+    // =========================================================================
+    // Appointments & Booking Schedule Availability
+    // =========================================================================
+    match /appointments/{appointmentId} {
+      allow read: if true;
+      allow create, update: if isOperator() && isValidAppointment(request.resource.data);
+      allow delete: if isOperator();
     }
 
     // =========================================================================

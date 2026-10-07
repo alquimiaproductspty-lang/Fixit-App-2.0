@@ -373,6 +373,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           fetched.push({ id: d.id, ...d.data() });
         });
         setAppointmentsList(fetched);
+      }, (err) => {
+        console.warn('[Admin] Error en listener de appointments:', err);
       });
     } catch (err) {
       console.error("Error cargando agenda:", err);

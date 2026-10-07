@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Service, ServiceRequest, PaintingCalculation, ACInstallationDetails } from '../types';
 import { getFixitWhatsAppUrl, FixitWhatsAppParams, openWhatsAppSafely } from '../lib/whatsapp';
-import { uploadPhotosToServer, registerOrderOnServer } from '../lib/api';
+import { registerOrderOnServer } from '../lib/api';
 import {
   ArrowLeft,
   MessageCircle,
@@ -10,13 +10,11 @@ import {
   AlertCircle,
   User,
   Phone,
-  HelpCircle,
   ExternalLink,
   Check,
   RotateCcw,
   Paintbrush,
   Wind,
-  Paperclip,
   Info,
   X,
 } from 'lucide-react';
@@ -68,7 +66,6 @@ async function reverseGeocodeCoords(lat: number, lon: number): Promise<string> {
 interface SummaryWhatsAppStepProps {
   service: Service;
   description: string;
-  photos: string[];
   customerName: string;
   onChangeCustomerName: (name: string) => void;
   customerPhone: string;
@@ -85,7 +82,6 @@ interface SummaryWhatsAppStepProps {
 export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
   service,
   description,
-  photos,
   customerName,
   onChangeCustomerName,
   customerPhone,
@@ -104,10 +100,8 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
   const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatusText, setSubmitStatusText] = useState('Preparando solicitud...');
-  const [uploadedPhotoUrls, setUploadedPhotoUrls] = useState<string[]>([]);
   const [confirmedOrder, setConfirmedOrder] = useState<ServiceRequest | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showPhotoInstructions, setShowPhotoInstructions] = useState(false);
   const hasAutoLocatedRef = useRef(false);
 
   // Compute final effective price
@@ -194,30 +188,16 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
 
     setErrorMessage(null);
     setIsSubmitting(true);
-    setSubmitStatusText('Guardando fotografías...');
-
-    let finalPhotoUrls: string[] = uploadedPhotoUrls;
-
-    // 1. Upload photos to durable backend store if not yet uploaded
-    if (photos.length > 0 && finalPhotoUrls.length === 0) {
-      try {
-        finalPhotoUrls = await uploadPhotosToServer(photos);
-        setUploadedPhotoUrls(finalPhotoUrls);
-      } catch (err) {
-        console.warn('Continuando sin subida previa de fotos:', err);
-      }
-    }
-
-    // 2. Register real order in the backend database
     setSubmitStatusText('Registrando pedido en sistema FIXIT...');
-    
+
+    // 1. Register real order in the backend database
     let createdOrder: ServiceRequest | null = null;
     try {
       createdOrder = await registerOrderOnServer({
         cliente: {
           nombre: customerName.trim(),
           telefono: customerPhone.trim(),
-          acepta_terminos_fotos: true,
+          acepta_terminos_fotos: false,
         },
         servicio_probable: service,
         direccion: customerAddress.trim() || 'Ciudad de Panamá',
@@ -231,7 +211,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
         cotizacion: effectivePrice,
         total_facturado: effectivePrice,
         estado: 'Solicitud recibida',
-        imagenes: finalPhotoUrls,
+        imagenes: [],
         painting_calculation: paintingCalculation || undefined,
         ac_installation_details: acDetails || undefined,
         respuestas: {
@@ -246,7 +226,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
 
     const orderTrackingId = createdOrder?.numero_pedido || createdOrder?.codigo_seguimiento;
 
-    // 3. Prepare parameters for WhatsApp
+    // 2. Prepare parameters for WhatsApp
     const locationParam = customerAddress.trim() || undefined;
 
     const params: FixitWhatsAppParams = {
@@ -257,7 +237,6 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
       price: effectivePrice,
       isDiagnostic: isEvaluationMode,
       problemDescription: description,
-      photoCount: photos.length,
       customerName,
       customerPhone,
       locationDetails: locationParam,
@@ -302,7 +281,6 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
       price: effectivePrice,
       isDiagnostic: isEvaluationMode,
       problemDescription: description,
-      photoCount: photos.length,
       customerName: clientName,
       customerPhone: clientPhone,
       locationDetails: clientAddress,
@@ -342,39 +320,13 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
               <span className="text-[#756A5D]">Teléfono:</span>
               <span className="font-semibold text-[#082D60]">{clientPhone}</span>
             </div>
-            <div className="flex justify-between border-b border-[#DED4C5]/60 pb-2">
+            <div className="flex justify-between">
               <span className="text-[#756A5D]">Tarifa estimada:</span>
               <span className="font-bold text-[#0988F5]">
                 ${effectivePrice.toFixed(2)} {isEvaluationMode ? '(Evaluación técnica acreditable)' : '(Total estimado)'}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-[#756A5D]">Fotos seleccionadas:</span>
-              <span className="font-semibold text-[#082D60]">
-                {photos.length > 0 ? `${photos.length} fotografía${photos.length === 1 ? '' : 's'}` : 'Ninguna'}
-              </span>
-            </div>
           </div>
-
-          {photos.length > 0 && (
-            <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-2xl p-3.5 text-left text-xs space-y-1.5">
-              <div className="flex items-center gap-1.5 font-bold text-[#92400E]">
-                <Paperclip className="w-4 h-4 text-[#D97706]" />
-                <span>Recuerda adjuntar las fotos en el chat</span>
-              </div>
-              <p className="text-[#B45309] leading-relaxed">
-                Al abrirse WhatsApp, tu mensaje estará listo. Recuerda pulsar el icono de clip (📎 o 📷) para adjuntar tus fotos directamente en la conversación.
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowPhotoInstructions(true)}
-                className="text-[11px] font-bold text-[#0B72D9] hover:underline flex items-center gap-1 cursor-pointer pt-0.5"
-              >
-                <HelpCircle className="w-3.5 h-3.5" />
-                Ver instrucciones para adjuntar fotos
-              </button>
-            </div>
-          )}
 
           <div className="pt-2 space-y-3">
             <a
@@ -545,58 +497,6 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
           </p>
         </div>
 
-        {/* Photos row with clear manual attachment warning */}
-        <div className="pb-3 border-b border-[#DED4C5]/60 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-[#756A5D] uppercase tracking-wider">
-              Fotografías para el técnico ({photos.length})
-            </span>
-            {photos.length > 0 && (
-              <span className="text-[11px] font-bold text-[#D97706] bg-[#FEF3C7] px-2 py-0.5 rounded-full">
-                Adjuntar en WhatsApp
-              </span>
-            )}
-          </div>
-
-          {photos.length > 0 ? (
-            <div className="space-y-2.5">
-              <div className="flex gap-2 overflow-x-auto py-1">
-                {photos.map((src, i) => (
-                  <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-[#DED4C5] shrink-0">
-                    <img src={src} alt={`Adjunto ${i + 1}`} className="w-full h-full object-cover" />
-                    <span className="absolute bottom-0.5 right-0.5 bg-black/60 text-[9px] font-bold text-white px-1 rounded">
-                      #{i + 1}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Explicit user requirement alert */}
-              <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-3 text-xs text-[#92400E] space-y-2">
-                <div className="flex items-start gap-2">
-                  <Info className="w-4 h-4 text-[#D97706] shrink-0 mt-0.5" />
-                  <p className="leading-relaxed">
-                    <strong>Tu mensaje está preparado.</strong> Por limitaciones de WhatsApp, <strong>debes adjuntar las fotografías manualmente en el chat</strong>.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowPhotoInstructions(true)}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FDE68A]/70 hover:bg-[#FDE68A] text-[#92400E] font-bold text-[11px] transition-colors cursor-pointer"
-                  id="btn-view-photo-instructions"
-                >
-                  <HelpCircle className="w-3.5 h-3.5" />
-                  <span>Ver instrucciones para adjuntar fotos</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-[#756A5D] italic">
-              No seleccionaste fotografías. Podrás enviarlas directamente por WhatsApp si lo deseas.
-            </p>
-          )}
-        </div>
-
         {/* Contact fields */}
         <div className="space-y-3.5 pt-1">
           <div>
@@ -746,11 +646,6 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
           <p className="leading-relaxed">
             Al tocar el botón, tu pedido se guardará en nuestro sistema con un número único de seguimiento y se abrirá WhatsApp con los datos completos listos para coordinar la visita técnica.
           </p>
-          {photos.length > 0 && (
-            <p className="leading-relaxed text-[#B45309] font-medium bg-[#FFFBEB] p-2.5 rounded-xl border border-[#FDE68A]">
-              📎 <strong>Para completar tu solicitud:</strong> Adjunta las fotografías manualmente en el chat de WhatsApp.
-            </p>
-          )}
         </div>
       </div>
 
@@ -766,67 +661,6 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
           <span>{isSubmitting ? submitStatusText : 'Continuar por WhatsApp'}</span>
         </button>
       </div>
-
-      {/* MODAL DE INSTRUCCIONES PARA ADJUNTAR FOTOS */}
-      {showPhotoInstructions && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[#FFFEFA] w-full max-w-md rounded-3xl p-6 border border-[#DED4C5] shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-[#DED4C5]/60 pb-3">
-              <div className="flex items-center gap-2 text-[#082D60] font-bold">
-                <Paperclip className="w-5 h-5 text-[#0B72D9]" />
-                <h3 className="text-base font-serif">Cómo adjuntar fotos en WhatsApp</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowPhotoInstructions(false)}
-                className="p-1 rounded-full text-[#756A5D] hover:text-[#1F2421] hover:bg-[#F6F4EF] transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-[#1F2421]">
-              <div className="flex items-start gap-3 bg-[#F6F4EF] p-3 rounded-2xl">
-                <span className="w-6 h-6 rounded-full bg-[#0B72D9] text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                  1
-                </span>
-                <div>
-                  <strong className="block text-[#082D60] mb-0.5">Envía el texto generado</strong>
-                  <p className="text-[#756A5D]">Al pulsar "Continuar por WhatsApp" se abrirá el chat con todos los datos y detalles del pedido. Presiona enviar.</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3 bg-[#F6F4EF] p-3 rounded-2xl">
-                <span className="w-6 h-6 rounded-full bg-[#0B72D9] text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                  2
-                </span>
-                <div>
-                  <strong className="block text-[#082D60] mb-0.5">Toca el botón de adjuntar</strong>
-                  <p className="text-[#756A5D]">En la barra inferior de WhatsApp, pulsa el clip 📎 o el icono de cámara 📷.</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3 bg-[#F6F4EF] p-3 rounded-2xl">
-                <span className="w-6 h-6 rounded-full bg-[#0B72D9] text-white flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
-                  3
-                </span>
-                <div>
-                  <strong className="block text-[#082D60] mb-0.5">Selecciona y envía tus fotos</strong>
-                  <p className="text-[#756A5D]">Elige las fotografías desde tu galería y envíalas. El técnico FIXIT las revisará para preparar los materiales y herramientas requeridos.</p>
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowPhotoInstructions(false)}
-              className="w-full py-3 rounded-xl bg-[#0B72D9] hover:bg-[#0962BC] text-white font-bold text-xs transition-colors cursor-pointer"
-            >
-              Entendido
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

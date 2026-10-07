@@ -54,7 +54,6 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>('Plomería');
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [problemDescription, setProblemDescription] = useState<string>('');
-  const [photos, setPhotos] = useState<string[]>([]);
   const [customerName, setCustomerName] = useState<string>('');
   const [customerPhone, setCustomerPhone] = useState<string>('');
   const [customerAddress, setCustomerAddress] = useState<string>('');
@@ -110,7 +109,6 @@ export default function App() {
         }
         if (parsed.selectedCategory) setSelectedCategory(parsed.selectedCategory);
         if (parsed.problemDescription) setProblemDescription(parsed.problemDescription);
-        if (Array.isArray(parsed.photos)) setPhotos(parsed.photos);
         if (parsed.customerName) setCustomerName(parsed.customerName);
         if (parsed.customerPhone) setCustomerPhone(parsed.customerPhone);
         if (parsed.customerAddress) setCustomerAddress(parsed.customerAddress);
@@ -128,7 +126,6 @@ export default function App() {
       if (
         !activeService &&
         !problemDescription &&
-        photos.length === 0 &&
         !customerName &&
         !customerPhone &&
         !customerAddress &&
@@ -144,7 +141,6 @@ export default function App() {
         serviceId: activeService?.id,
         selectedCategory: activeCategory,
         problemDescription,
-        photos,
         customerName,
         customerPhone,
         customerAddress,
@@ -160,7 +156,6 @@ export default function App() {
     activeService,
     activeCategory,
     problemDescription,
-    photos,
     customerName,
     customerPhone,
     customerAddress,
@@ -231,7 +226,6 @@ export default function App() {
     userPrefilledRef.current = false;
     setSelectedService(null);
     setProblemDescription('');
-    setPhotos([]);
     setCustomerName('');
     setCustomerPhone('');
     setCustomerAddress('');
@@ -352,7 +346,7 @@ export default function App() {
               <ServiceSelectionStep
                 category={activeCategory}
                 onSelectService={handleSelectService}
-                onBack={() => goBack({ step: 'home' })}
+                onBack={() => navigate({ step: 'home' })}
                 onConfirmPaintingCalculation={(calc, service) => {
                   setSelectedService(service);
                   setSelectedCategory(service.category);
@@ -380,8 +374,6 @@ export default function App() {
                 service={activeService}
                 description={problemDescription}
                 onChangeDescription={setProblemDescription}
-                photos={photos}
-                onChangePhotos={setPhotos}
                 onContinue={handleContinueFromDetail}
                 onBack={() => goBack({ step: 'service', serviceId: activeService.id })}
               />
@@ -393,7 +385,6 @@ export default function App() {
               <SummaryWhatsAppStep
                 service={activeService}
                 description={problemDescription}
-                photos={photos}
                 customerName={customerName}
                 onChangeCustomerName={setCustomerName}
                 customerPhone={customerPhone}
@@ -429,7 +420,7 @@ export default function App() {
           {currentRoute.step === 'pintura' && (
             <div key="step-pintura" className="w-full">
               <PinturaService
-                onBack={() => goBack({ step: 'home' })}
+                onBack={() => navigate({ step: 'home' })}
                 onSolicitarServicio={(calc: any) => {
                   const targetService = getServiceById('PIN-001') || FIXIT_CATALOG.find((s) => s.category.toLowerCase().includes('pintur'))!;
                   setSelectedService(targetService);
