@@ -1,5 +1,6 @@
 import React from 'react';
 import { Camera, ListFilter, ShieldCheck, Tag, Sparkles, MessageSquare } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { FIXIT_IMAGES } from '../assets/images';
 import { FixitLogo } from './FixitLogo';
 
@@ -12,6 +13,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
   onTakePhoto,
   onSelectService,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <section className="w-full pb-6 pt-2 sm:pt-4">
       <div className="max-w-xl mx-auto px-4 sm:px-6">
@@ -24,10 +27,13 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         {/* Message requested: "Arreglar tu hogar, sin complicaciones." */}
         <div className="text-center mb-5">
           <h1 className="text-2xl sm:text-3xl font-serif font-bold text-[#082D60] tracking-tight leading-snug mb-2">
-            Arreglar tu hogar, <span className="text-[#0988F5] font-normal italic">sin complicaciones.</span>
+            {t('hero.title')}{' '}
+            <span className="text-[#0988F5] font-normal italic">
+              {t('hero.titleAccent')}
+            </span>
           </h1>
           <p className="text-[#756A5D] text-xs sm:text-sm leading-relaxed max-w-md mx-auto">
-            Un hogar bonito merece soluciones cuidadas. Plomería, electricidad, reparaciones del hogar y pintura residencial en Ciudad de Panamá con precios por adelantado y técnicos propios.
+            {t('hero.subtitle')}
           </p>
         </div>
 
@@ -35,8 +41,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         <div className="flex justify-center mb-5">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#FFFEFA] border border-[#B98A43]/40 text-[#082D60] text-xs font-semibold tracking-wide shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-[#B98A43]"></span>
-            <span className="text-[#B98A43] font-bold">20% off</span>
-            <span className="text-[#756A5D]">en servicios residenciales de lanzamiento</span>
+            <span className="text-[#B98A43] font-bold">{t('hero.discount')}</span>
+            <span className="text-[#756A5D]">{t('hero.discountDetails')}</span>
           </div>
         </div>
 
@@ -53,11 +59,11 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             <div className="flex items-center gap-2 mb-1">
               <span className="w-1.5 h-1.5 rounded-full bg-[#0988F5]"></span>
               <span className="text-[11px] font-medium uppercase tracking-widest text-[#DED4C5]">
-                Plomería • Electricidad • Reparaciones • Pintura
+                {t('hero.categoriesBanner')}
               </span>
             </div>
             <p className="text-sm sm:text-base font-serif font-semibold text-[#FFFEFA]">
-              Técnicos idóneos certificados en Ciudad de Panamá
+              {t('hero.certifiedBanner')}
             </p>
           </div>
         </div>
@@ -65,10 +71,10 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         {/* Action Card: Porcelain surface */}
         <div className="bg-[#FFFEFA] rounded-3xl p-5 sm:p-6 shadow-2xs border border-[#DED4C5] mb-6">
           <p className="text-center text-[11px] font-semibold uppercase tracking-widest text-[#756A5D] mb-1.5">
-            Paso 1 de 4
+            {t('hero.stepCounter')}
           </p>
           <h2 className="text-xl sm:text-2xl font-serif font-bold text-center text-[#082D60] mb-5 tracking-tight">
-            ¿Cómo podemos ayudarte hoy?
+            {t('hero.howCanWeHelp')}
           </h2>
 
           <div className="space-y-3">
@@ -81,7 +87,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               <div className="w-8 h-8 rounded-full bg-[#0988F5]/30 flex items-center justify-center text-white">
                 <Camera className="w-4 h-4 stroke-[2]" />
               </div>
-              <span>Tomar o subir una foto</span>
+              <span>{t('hero.takePhoto')}</span>
             </button>
 
             {/* Secondary Action Button: Electric Blue FIXI Border */}
@@ -91,12 +97,12 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               id="btn-hero-select-catalog"
             >
               <ListFilter className="w-4 h-4 text-[#0988F5] stroke-[2]" />
-              <span>Elegir un servicio del catálogo</span>
+              <span>{t('hero.chooseCatalog')}</span>
             </button>
           </div>
 
           <p className="text-center text-xs text-[#756A5D] mt-3.5">
-            Sube hasta 3 fotos para que identifiquemos la solución recomendada.
+            {t('hero.photoAdvice')}
           </p>
         </div>
 
@@ -107,8 +113,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               <Tag className="w-4 h-4 stroke-[1.75]" />
             </div>
             <div>
-              <p className="text-xs font-bold text-[#2A211B]">Precio claro</p>
-              <p className="text-[11px] text-[#756A5D] leading-tight">Sin tarifas ocultas ni sorpresas al llegar.</p>
+              <p className="text-xs font-bold text-[#2A211B]">{t('hero.valuePrice')}</p>
+              <p className="text-[11px] text-[#756A5D] leading-tight">{t('hero.valuePriceDesc')}</p>
             </div>
           </div>
 
@@ -117,8 +123,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               <ShieldCheck className="w-4 h-4 stroke-[1.75]" />
             </div>
             <div>
-              <p className="text-xs font-bold text-[#2A211B]">Técnicos propios</p>
-              <p className="text-[11px] text-[#756A5D] leading-tight">Personal FIXI calificado y de confianza.</p>
+              <p className="text-xs font-bold text-[#2A211B]">{t('hero.valueStaff')}</p>
+              <p className="text-[11px] text-[#756A5D] leading-tight">{t('hero.valueStaffDesc')}</p>
             </div>
           </div>
 
@@ -127,8 +133,8 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
               <MessageSquare className="w-4 h-4 stroke-[1.75]" />
             </div>
             <div>
-              <p className="text-xs font-bold text-[#2A211B]">Vía WhatsApp</p>
-              <p className="text-[11px] text-[#756A5D] leading-tight">Coordinación directa, ágil y personalizada.</p>
+              <p className="text-xs font-bold text-[#2A211B]">{t('hero.valueWhatsApp')}</p>
+              <p className="text-[11px] text-[#756A5D] leading-tight">{t('hero.valueWhatsAppDesc')}</p>
             </div>
           </div>
         </div>
