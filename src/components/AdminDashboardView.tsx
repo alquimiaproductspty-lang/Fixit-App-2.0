@@ -377,7 +377,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         console.warn('[Admin] Error en listener de appointments:', err);
       });
     } catch (err) {
-      console.error("Error cargando agenda:", err);
+      console.warn("Aviso cargando agenda:", err);
     }
     
     return () => {
@@ -444,7 +444,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   const handleExportClientsCSV = () => {
     if (clients.length === 0) {
-      alert('No hay clientes registrados para exportar.');
+      showToast('No hay clientes registrados para exportar.', 'error');
       return;
     }
 
@@ -604,15 +604,15 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const handleCreateManualOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualClientName.trim()) {
-      alert('Ingresa el nombre del cliente');
+      showToast('Ingresa el nombre del cliente', 'error');
       return;
     }
     if (!manualClientPhone.trim()) {
-      alert('Ingresa el teléfono del cliente');
+      showToast('Ingresa el teléfono del cliente', 'error');
       return;
     }
     if (!manualAddress.trim()) {
-      alert('Ingresa la dirección del servicio');
+      showToast('Ingresa la dirección del servicio', 'error');
       return;
     }
 
@@ -819,7 +819,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       setAgendaClientInfo('');
       // No reseteamos fecha/hora para que pueda bloquear varias si quiere
     } catch (err: any) {
-      console.error("Error al agendar cita:", err);
+      console.warn("Aviso al agendar cita:", err);
       showToast('Error al bloquear horario.', 'error');
     } finally {
       setIsSavingAppointment(false);
@@ -827,13 +827,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   };
 
   const handleDeleteAppointment = async (id: string) => {
-    if (!window.confirm('¿Liberar este horario? Volverá a estar disponible para el público.')) return;
+    const confirmed = typeof window !== 'undefined' && typeof window.confirm === 'function'
+      ? window.confirm('¿Liberar este horario? Volverá a estar disponible para el público.')
+      : true;
+    if (!confirmed) return;
     
     try {
       await deleteDoc(doc(db, 'appointments', id));
       showToast('Horario liberado exitosamente.', 'success');
     } catch (err) {
-      console.error("Error borrando cita:", err);
+      console.warn("Aviso borrando cita:", err);
       showToast('Error al liberar horario.', 'error');
     }
   };
