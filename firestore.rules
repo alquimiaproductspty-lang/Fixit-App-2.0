@@ -160,8 +160,8 @@ service cloud.firestore {
         ]))
       );
 
-      // Deletion: Strictly reserved to ADMIN
-      allow delete: if isAdmin();
+      // Deletion: Reserved to ADMIN or account Owner (ARCO / Privacy Laws)
+      allow delete: if isAdmin() || isOwner(userId);
     }
 
     // =========================================================================

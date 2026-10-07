@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, Mail, Phone, Shield, CheckCircle2, Loader2, LogOut, Globe } from 'lucide-react';
+import { X, User, Mail, Phone, Shield, CheckCircle2, Loader2, LogOut, Globe, Trash2 } from 'lucide-react';
 import { ActiveUser, authService } from '../../lib/firebase';
 import { ROLE_DISPLAY } from '../../types';
 
@@ -20,6 +20,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [phone, setPhone] = useState('');
   const [language, setLanguage] = useState<'es' | 'en'>('es');
   const [isLoading, setIsLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -66,6 +67,44 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const handleSignOut = async () => {
     onClose();
     await authService.signOut();
+  };
+
+  const handleDeleteAccount = async () => {
+    // 1. Confirmación nativa del navegador
+    const confirmed = window.confirm(
+      '¿Estás seguro de que deseas eliminar tu cuenta y todos tus datos de forma permanente? Esta acción no se puede deshacer.'
+    );
+
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    setErrorMessage(null);
+
+    try {
+      // 2. Eliminar el registro de la base de datos de Firebase y auth
+      await authService.deleteAccount();
+
+      // 3. Cerrar el modal
+      onClose();
+
+      // 4. Redirigir a la página principal (/)
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
+    } catch (err: any) {
+      console.error('Error al eliminar cuenta:', err);
+      if (err?.code === 'auth/requires-recent-login') {
+        alert(
+          'Por motivos de seguridad, Firebase requiere que inicies sesión nuevamente antes de eliminar tu cuenta. Por favor vuelve a ingresar e inténtalo de nuevo.'
+        );
+      } else {
+        setErrorMessage(
+          'Ocurrió un error al intentar eliminar la cuenta. Por favor contáctanos o intenta nuevamente.'
+        );
+      }
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const roleLabel = ROLE_DISPLAY[user.role]?.es || user.role;
@@ -255,7 +294,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <div className="pt-2 flex flex-col gap-2">
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || isDeleting}
               className="w-full py-2.5 px-4 rounded-2xl bg-[#082D60] hover:bg-[#062248] text-white font-semibold text-xs active:scale-[0.99] transition-all cursor-pointer shadow-xs disabled:opacity-50 flex items-center justify-center gap-2"
               id="btn-save-profile"
             >
@@ -272,12 +311,39 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <button
               type="button"
               onClick={handleSignOut}
-              className="w-full py-2.5 px-4 rounded-2xl bg-[#FFFEFA] hover:bg-rose-50 text-rose-700 hover:text-rose-800 border border-rose-200 font-semibold text-xs active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2"
+              disabled={isLoading || isDeleting}
+              className="w-full py-2.5 px-4 rounded-2xl bg-[#FFFEFA] hover:bg-rose-50 text-rose-700 hover:text-rose-800 border border-rose-200 font-semibold text-xs active:scale-[0.99] transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
               id="btn-profile-signout"
             >
               <LogOut className="w-4 h-4 text-rose-600" />
               <span>Cerrar sesión</span>
             </button>
+          </div>
+
+          {/* Zona de advertencia: Eliminar mi cuenta */}
+          <div className="pt-4 border-t border-[#DED4C5]/60 text-center">
+            <button
+              type="button"
+              onClick={handleDeleteAccount}
+              disabled={isLoading || isDeleting}
+              className="w-full bg-red-600 hover:bg-red-700 active:scale-[0.99] text-white font-bold py-2.5 px-4 rounded-2xl text-xs transition-all cursor-pointer shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
+              id="btn-delete-account"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Eliminando cuenta...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 text-white" />
+                  <span>Eliminar mi cuenta</span>
+                </>
+              )}
+            </button>
+            <p className="text-[10px] text-[#756A5D] mt-1.5">
+              Acción permanente de acuerdo con las leyes de privacidad.
+            </p>
           </div>
         </form>
       </div>

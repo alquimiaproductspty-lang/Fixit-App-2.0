@@ -10,7 +10,8 @@ import {
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
-  User as FirebaseUser
+  User as FirebaseUser,
+  deleteUser
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -487,6 +488,36 @@ export const authService = {
     } catch {}
     currentAuthState = { user: null, loading: false, error: null };
     notifyAuthListeners();
+  },
+
+  // Permanent Account & Data Deletion (Derechos ARCO / Privacidad)
+  async deleteAccount(): Promise<void> {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('No hay una sesión activa para eliminar la cuenta.');
+    }
+
+    const uid = currentUser.uid;
+
+    // 1. Eliminar registro del usuario en la base de datos de Firestore
+    try {
+      await deleteDoc(doc(db, 'users', uid));
+    } catch (err) {
+      console.warn('[FIXIT Auth] Aviso al eliminar documento en Firestore:', err);
+    }
+
+    // 2. Eliminar cuenta en Firebase Authentication
+    try {
+      await deleteUser(currentUser);
+    } catch (err: any) {
+      console.warn('[FIXIT Auth] Error al eliminar usuario de Firebase Auth:', err);
+      if (err?.code === 'auth/requires-recent-login') {
+        throw err;
+      }
+    }
+
+    // 3. Cerrar sesión completamente
+    await this.signOut();
   }
 };
 
