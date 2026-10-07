@@ -426,7 +426,7 @@ export const authService = {
 
         await setDoc(userDocRef, profileData);
       } catch (firestoreError: any) {
-        console.error('[FIXIT Auth Error] Error guardando perfil de usuario en Firestore:', firestoreError);
+        console.warn('[FIXIT Auth] Aviso al guardar perfil de usuario en Firestore:', firestoreError);
         handleFirestoreError(firestoreError, OperationType.WRITE, `users/${user.uid}`);
       }
 

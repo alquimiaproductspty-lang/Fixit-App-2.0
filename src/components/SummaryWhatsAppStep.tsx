@@ -126,7 +126,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
   const detectLocation = useCallback((isManual: boolean = false) => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
       if (isManual) {
-        alert('La geolocalización no está disponible en este navegador o dispositivo.');
+        setErrorMessage('La geolocalización no está disponible en este navegador o dispositivo.');
       }
       return;
     }
@@ -158,9 +158,9 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
         setIsLocating(false);
         if (isManual) {
           if (error.code === error.PERMISSION_DENIED) {
-            alert('Permiso de ubicación denegado. Por favor escribe tu dirección manualmente.');
+            setErrorMessage('Permiso de ubicación denegado. Por favor escribe tu dirección manualmente.');
           } else {
-            alert('No se pudo determinar tu ubicación exacta. Por favor escribe tu dirección manualmente.');
+            setErrorMessage('No se pudo determinar tu ubicación exacta. Por favor escribe tu dirección manualmente.');
           }
         }
       },
@@ -176,7 +176,11 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
   }, [detectLocation]);
 
   // Upload photos to durable server storage and register order
-  const prepareAndSendWhatsApp = async () => {
+  const handleConfirm = async (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
+
     if (!customerName.trim()) {
       setErrorMessage('Por favor ingresa tu nombre completo.');
       return;
@@ -224,46 +228,66 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
       console.warn('Error al persistir orden en servidor:', err);
     }
 
-    const orderTrackingId = createdOrder?.numero_pedido || createdOrder?.codigo_seguimiento;
+    const orderTrackingId = createdOrder?.numero_pedido || createdOrder?.codigo_seguimiento || '';
 
-    // 2. Prepare parameters for WhatsApp
-    const locationParam = customerAddress.trim() || undefined;
+    // 2. Resumen del pedido para WhatsApp con servicios seleccionados y precio total
+    let mensaje = `*RESUMEN DEL PEDIDO - FIXIT*\n\n`;
+    if (orderTrackingId) {
+      mensaje += `📋 *Número de Solicitud:* ${orderTrackingId}\n`;
+    }
+    mensaje += `🔧 *Servicios seleccionados:* ${service.service_name}\n`;
+    if (service.category) {
+      mensaje += `🏷️ *Categoría:* ${service.category}\n`;
+    }
 
-    const params: FixitWhatsAppParams = {
-      orderId: orderTrackingId,
-      category: service.category,
-      serviceName: service.service_name,
-      basePrice: service.price,
-      price: effectivePrice,
-      isDiagnostic: isEvaluationMode,
-      problemDescription: description,
-      customerName,
-      customerPhone,
-      locationDetails: locationParam,
-      paintingCalculation,
-      acDetails,
-    };
+    if (paintingCalculation) {
+      mensaje += `🎨 *Detalle de Pintura:*\n`;
+      if (paintingCalculation.areaName) mensaje += `• Tipo: ${paintingCalculation.areaName}\n`;
+      mensaje += `• Área: ${paintingCalculation.areaM2} m²\n`;
+      if (paintingCalculation.modalityName) mensaje += `• Modalidad: ${paintingCalculation.modalityName}\n`;
+      if (paintingCalculation.nombreCalidad) mensaje += `• Calidad de Pintura: ${paintingCalculation.nombreCalidad}\n`;
+      if (paintingCalculation.galones) mensaje += `• Galones estimados: ${paintingCalculation.galones}\n`;
+    } else if (acDetails) {
+      mensaje += `❄️ *Detalle A/C:* ${acDetails.requiresEvaluation ? 'Evaluación técnica previa requerida' : 'Instalación estándar residencial'}\n`;
+    }
 
-    const waUrl = getFixitWhatsAppUrl(params);
+    if (description?.trim()) {
+      mensaje += `📝 *Descripción del problema:* ${description.trim()}\n`;
+    }
+
+    if (customerAddress.trim()) {
+      mensaje += `📍 *Dirección:* ${customerAddress.trim()}\n`;
+    }
+
+    mensaje += `👤 *Cliente:* ${customerName.trim()}\n`;
+    mensaje += `📞 *Teléfono:* ${customerPhone.trim()}\n\n`;
+    mensaje += `💵 *Precio total:* $${effectivePrice.toFixed(2)}${isEvaluationMode ? ' (Evaluación técnica)' : ''}\n\n`;
+    mensaje += `Hola FIXIT, confirmo mi pedido y deseo coordinar la visita técnica.`;
 
     setIsSubmitting(false);
 
-    // Open WhatsApp safely in an external context
-    openWhatsAppSafely(waUrl);
+    // Redirección usando window.open('https://wa.me/50765356072?text=' + encodeURIComponent(mensaje), '_blank');
+    const waUrl = 'https://wa.me/50765356072?text=' + encodeURIComponent(mensaje);
+    try {
+      const win = window.open(waUrl, '_blank');
+      // Si el navegador bloquea la ventana emergente por ejecutarse tras await, usamos el despachador seguro
+      if (!win) {
+        openWhatsAppSafely(waUrl);
+      }
+    } catch {
+      openWhatsAppSafely(waUrl);
+    }
 
-    // Limpieza de estado y formulario al enviar el pedido para evitar duplicación de datos
+    // Limpieza de borrador en almacenamiento local
     try {
       localStorage.removeItem('fixit_customer_draft_v2');
     } catch (e) {
       console.warn('Error al limpiar borrador:', e);
     }
-    onChangeCustomerName('');
-    onChangeCustomerPhone('');
-    onChangeCustomerAddress('');
-    if (onReset) {
-      onReset();
-    }
   };
+
+  const onSubmit = handleConfirm;
+  const prepareAndSendWhatsApp = handleConfirm;
 
 
   // If order was confirmed and sent to WhatsApp, display confirmation screen
@@ -364,7 +388,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
           id="btn-back-to-details"
         >
           <ArrowLeft className="w-4 h-4 stroke-[2]" />
-          <span>Volver a fotos y descripción</span>
+          <span>Volver a fecha y detalles</span>
         </button>
         <span className="text-[11px] font-semibold text-[#0988F5] uppercase tracking-wider bg-[#0988F5]/10 px-2.5 py-1 rounded-full">
           Paso final
@@ -652,13 +676,15 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
       {/* MAIN WHATSAPP CTA ONLY */}
       <div className="space-y-2.5">
         <button
-          onClick={prepareAndSendWhatsApp}
+          type="button"
+          onClick={handleConfirm}
           disabled={isSubmitting}
           className="w-full py-4 px-6 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] active:scale-[0.99] text-white font-bold text-base shadow-sm hover:shadow transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60"
-          id="btn-send-whatsapp-order"
+          id="btn-confirm-order"
+          data-testid="btn-send-whatsapp-order"
         >
           <MessageCircle className="w-5 h-5 fill-white stroke-none" />
-          <span>{isSubmitting ? submitStatusText : 'Continuar por WhatsApp'}</span>
+          <span>{isSubmitting ? submitStatusText : 'Confirmar y Enviar por WhatsApp'}</span>
         </button>
       </div>
     </div>

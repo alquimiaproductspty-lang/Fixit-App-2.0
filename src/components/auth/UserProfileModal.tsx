@@ -92,9 +92,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         window.location.href = '/';
       }
     } catch (err: any) {
-      console.error('Error al eliminar cuenta:', err);
+      console.warn('Error al eliminar cuenta:', err);
       if (err?.code === 'auth/requires-recent-login') {
-        alert(
+        setErrorMessage(
           'Por motivos de seguridad, Firebase requiere que inicies sesión nuevamente antes de eliminar tu cuenta. Por favor vuelve a ingresar e inténtalo de nuevo.'
         );
       } else {
