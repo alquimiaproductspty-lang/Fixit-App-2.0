@@ -354,6 +354,19 @@ export interface PaintingCalculation {
   minimumChargeApplied: boolean;
   total: number;
   roomDetails?: string;
+  areaType?: 'interior' | 'exterior';
+  areaName?: string;
+  modality?: 'solo_mano_obra' | 'mano_obra_materiales';
+  modalityName?: string;
+  galones?: number;
+  costoMateriales?: number;
+  costoManoDeObra?: number;
+  rateManoDeObra?: number;
+  precioGalon?: number;
+  calidadPintura?: 'estandar' | 'premium';
+  nombreCalidad?: string;
+  costoPintura?: number;
+  costoInsumosFijo?: number;
 }
 
 export interface ACInstallationDetails {

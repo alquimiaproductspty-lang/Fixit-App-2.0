@@ -58,9 +58,26 @@ export function generateFixitWhatsAppMessage(params: FixitWhatsAppParams): strin
 
   // Specific Painting Calculation breakdown
   if (paintingCalculation) {
-    msg += `🎨 *Detalle de Pintura:*\n`;
+    msg += `🎨 *Detalle de Cotización de Pintura:*\n`;
+    if (paintingCalculation.areaName) {
+      msg += `• Tipo de Superficie: ${paintingCalculation.areaName}\n`;
+    }
     msg += `• Área calculada: ${paintingCalculation.areaM2} m²\n`;
-    msg += `• Tarifa por m²: $${paintingCalculation.pricePerM2.toFixed(2)}\n`;
+    if (paintingCalculation.modalityName) {
+      msg += `• Modalidad: ${paintingCalculation.modalityName}\n`;
+    }
+    msg += `• Mano de Obra: $${(paintingCalculation.costoManoDeObra ?? paintingCalculation.subtotal).toFixed(2)} ($${paintingCalculation.pricePerM2.toFixed(2)}/m²)\n`;
+    if (paintingCalculation.includePaintMaterials) {
+      if (paintingCalculation.nombreCalidad) {
+        msg += `• Calidad de Pintura: ${paintingCalculation.nombreCalidad}\n`;
+      }
+      if (paintingCalculation.galones && paintingCalculation.galones > 0) {
+        const costPinturaVal = paintingCalculation.costoPintura ?? (paintingCalculation.galones * (paintingCalculation.precioGalon || 14));
+        msg += `• Pintura estimada: ${paintingCalculation.galones} galones ($${costPinturaVal.toFixed(2)})\n`;
+        msg += `• Insumos de protección (rodillos, cinta, plásticos): $${(paintingCalculation.costoInsumosFijo ?? 15).toFixed(2)}\n`;
+        msg += `• Total Materiales e Insumos: $${(paintingCalculation.costoMateriales ?? (costPinturaVal + 15)).toFixed(2)}\n`;
+      }
+    }
     if (paintingCalculation.minimumChargeApplied) {
       msg += `• Tarifa mínima aplicada: $${paintingCalculation.minimumServiceCharge}.00\n`;
     }

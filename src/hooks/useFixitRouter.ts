@@ -2,6 +2,8 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react
 
 export type FixitRoute =
   | { step: 'home' }
+  | { step: 'pro' }
+  | { step: 'pintura' }
   | { step: 'category'; categoryId: string }
   | { step: 'service'; serviceId: string }
   | { step: 'detail'; serviceId: string }
@@ -9,9 +11,8 @@ export type FixitRoute =
   | { step: 'login' }
   | { step: 'register' }
   | { step: 'admin' }
-  | { step: 'pro' }
   | { step: 'privacy' }
-  | { step: 'terms' }; // Agregado step 'terms'
+  | { step: 'terms' };
 
 export type NavigationDirection = 'forward' | 'back' | 'none';
 
@@ -19,6 +20,12 @@ export function parsePath(path: string): FixitRoute {
   const clean = path.replace(/^\/+/, '');
   if (!clean || clean === 'home') {
     return { step: 'home' };
+  }
+  if (clean === 'pro' || clean === 'b2b' || clean === 'fixit-pro' || clean === 'empresas') {
+    return { step: 'pro' };
+  }
+  if (clean === 'pintura' || clean === 'cotizador-pintura' || clean === 'pintura-service') {
+    return { step: 'pintura' };
   }
   if (clean === 'admin' || clean === 'panel') {
     return { step: 'admin' };
@@ -28,9 +35,6 @@ export function parsePath(path: string): FixitRoute {
   }
   if (clean === 'register' || clean === 'registro') {
     return { step: 'register' };
-  }
-  if (clean === 'pro' || clean === 'empresas') { // 2. Agregado parsePath para 'pro'
-    return { step: 'pro' };
   }
   if (clean === 'privacidad' || clean === 'privacy' || clean === 'privacy-policy' || clean === 'politica-de-privacidad' || clean === 'politica-privacidad') {
     return { step: 'privacy' };
@@ -60,10 +64,11 @@ export function parsePath(path: string): FixitRoute {
 export function routeToPath(route: FixitRoute): string {
   switch (route.step) {
     case 'home': return '';
+    case 'pro': return 'pro';
+    case 'pintura': return 'pintura';
     case 'login': return 'login';
     case 'register': return 'register';
     case 'admin': return 'admin';
-    case 'pro': return 'pro'; // 3. Agregado routeToPath para 'pro'
     case 'privacy': return 'privacidad';
     case 'terms': return 'terminos';
     case 'category': return `category/${encodeURIComponent(route.categoryId)}`;
@@ -76,10 +81,11 @@ export function routeToPath(route: FixitRoute): string {
 export function routeToKey(route: FixitRoute): string {
   switch (route.step) {
     case 'home': return 'home';
+    case 'pro': return 'pro';
+    case 'pintura': return 'pintura';
     case 'login': return 'login';
     case 'register': return 'register';
     case 'admin': return 'admin';
-    case 'pro': return 'pro'; // 4. Agregado routeToKey para 'pro'
     case 'privacy': return 'privacy';
     case 'terms': return 'terms';
     case 'category': return `category:${route.categoryId}`;
@@ -99,9 +105,10 @@ export function getParentRoute(route: FixitRoute, fallbackCategory?: string): Fi
       }
       return { step: 'home' };
     case 'category': return { step: 'home' };
+    case 'pintura': return { step: 'home' };
+    case 'pro': return { step: 'home' };
     case 'register': return { step: 'login' };
     case 'admin': return { step: 'home' };
-    case 'pro': return { step: 'home' }; // 5. Agregado getParentRoute para volver al inicio desde 'pro'
     case 'privacy': return { step: 'home' };
     case 'terms': return { step: 'home' };
     case 'login':

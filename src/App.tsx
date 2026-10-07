@@ -23,6 +23,7 @@ import { AnimatePresence } from 'motion/react';
 
 // 1. NUEVO: Importamos FIXIT Pro, Política de Privacidad y Términos de Servicio
 import FixitPro from './components/FixitPro'; 
+import { PinturaService } from './components/PinturaService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 
@@ -291,6 +292,8 @@ export default function App() {
           } else if (view === 'pro') {
             // 2. NUEVO: Agregamos la ruta en la navegación principal
             navigate({ step: 'pro' });
+          } else if (view === 'pintura') {
+            navigate({ step: 'pintura' });
           } else if (view === 'privacy') {
             navigate({ step: 'privacy' });
           } else if (view === 'terms') {
@@ -350,6 +353,13 @@ export default function App() {
                 category={activeCategory}
                 onSelectService={handleSelectService}
                 onBack={() => goBack({ step: 'home' })}
+                onConfirmPaintingCalculation={(calc, service) => {
+                  setSelectedService(service);
+                  setSelectedCategory(service.category);
+                  setPaintingCalculation(calc);
+                  setAdjustedPrice(calc.total);
+                  navigate({ step: 'detail', serviceId: service.id });
+                }}
               />
             </div>
           )}
@@ -412,6 +422,53 @@ export default function App() {
           {currentRoute.step === 'pro' && (
             <div key="step-pro" className="w-full">
               <FixitPro />
+            </div>
+          )}
+
+          {/* Cotizador Interactivo de Pintura */}
+          {currentRoute.step === 'pintura' && (
+            <div key="step-pintura" className="w-full">
+              <PinturaService
+                onBack={() => goBack({ step: 'home' })}
+                onSolicitarServicio={(calc: any) => {
+                  const targetService = getServiceById('PIN-001') || FIXIT_CATALOG.find((s) => s.category.toLowerCase().includes('pintur'))!;
+                  setSelectedService(targetService);
+                  setSelectedCategory(targetService.category);
+                  const paintingCalc: PaintingCalculation = {
+                    serviceId: targetService.id,
+                    serviceName: targetService.service_name,
+                    areaM2: calc.m2,
+                    pricePerM2: calc.rateManoDeObra,
+                    subtotal: calc.costoManoDeObra,
+                    hasHeightSurcharge: false,
+                    heightSurchargeAmount: 0,
+                    includePaintMaterials: calc.modality === 'mano_obra_materiales',
+                    paintMaterialsAmount: calc.costoMateriales,
+                    hasPatchingRepair: false,
+                    patchingRepairAmount: 0,
+                    minimumServiceCharge: 0,
+                    minimumChargeApplied: false,
+                    total: calc.granTotal,
+                    roomDetails: `${calc.areaName} - ${calc.m2} m² (${calc.modalityName}${calc.nombreCalidad ? ` • ${calc.nombreCalidad}` : ''})`,
+                    areaType: calc.areaType,
+                    areaName: calc.areaName,
+                    modality: calc.modality,
+                    modalityName: calc.modalityName,
+                    galones: calc.galones,
+                    costoMateriales: calc.costoMateriales,
+                    costoManoDeObra: calc.costoManoDeObra,
+                    rateManoDeObra: calc.rateManoDeObra,
+                    precioGalon: calc.precioGalon,
+                    calidadPintura: calc.calidadPintura,
+                    nombreCalidad: calc.nombreCalidad,
+                    costoPintura: calc.costoPintura,
+                    costoInsumosFijo: calc.costoInsumosFijo,
+                  };
+                  setPaintingCalculation(paintingCalc);
+                  setAdjustedPrice(calc.granTotal);
+                  navigate({ step: 'detail', serviceId: targetService.id });
+                }}
+              />
             </div>
           )}
 

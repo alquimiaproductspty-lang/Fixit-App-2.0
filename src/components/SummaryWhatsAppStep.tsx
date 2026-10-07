@@ -457,15 +457,26 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
           <div className="p-3.5 bg-[#B98A43]/10 border border-[#B98A43]/20 rounded-2xl text-xs space-y-1.5">
             <div className="flex items-center gap-2 text-[#8C601E] font-bold">
               <Paintbrush className="w-4 h-4" />
-              <span>Desglose de pintura residencial</span>
+              <span>Desglose de Cotización de Pintura</span>
             </div>
-            <div className="grid grid-cols-2 gap-1 text-[#756A5D] pt-1">
-              <div>Área: <strong className="text-[#1F2421]">{paintingCalculation.areaM2} m²</strong></div>
-              <div>Tarifa: <strong className="text-[#1F2421]">${paintingCalculation.pricePerM2.toFixed(2)}/m²</strong></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[#756A5D] pt-1">
+              <div>Área: <strong className="text-[#1F2421]">{paintingCalculation.areaName || 'Superficie'} ({paintingCalculation.areaM2} m²)</strong></div>
+              <div>Modalidad: <strong className="text-[#1F2421]">{paintingCalculation.modalityName || (paintingCalculation.includePaintMaterials ? 'Mano de Obra + Materiales' : 'Solo Mano de Obra')}</strong></div>
+              <div>Mano de obra: <strong className="text-[#1F2421]">${(paintingCalculation.costoManoDeObra ?? paintingCalculation.subtotal).toFixed(2)} (${paintingCalculation.pricePerM2.toFixed(2)}/m²)</strong></div>
+              {paintingCalculation.includePaintMaterials && (
+                <>
+                  {paintingCalculation.nombreCalidad && (
+                    <div>Calidad de pintura: <strong className="text-[#1F2421]">{paintingCalculation.nombreCalidad}</strong></div>
+                  )}
+                  {paintingCalculation.galones && paintingCalculation.galones > 0 ? (
+                    <div>Materiales e insumos: <strong className="text-[#1F2421]">{paintingCalculation.galones} gal. (${(paintingCalculation.costoPintura ?? (paintingCalculation.galones * (paintingCalculation.precioGalon || 14))).toFixed(2)}) + $15 insumos = ${(paintingCalculation.costoMateriales ?? 0).toFixed(2)}</strong></div>
+                  ) : null}
+                </>
+              )}
             </div>
             {paintingCalculation.minimumChargeApplied && (
               <p className="text-[11px] text-[#8C601E]">
-                • Tarifa mínima de servicio aplicada ($75.00)
+                • Tarifa mínima de servicio aplicada (${paintingCalculation.minimumServiceCharge}.00)
               </p>
             )}
             {paintingCalculation.hasHeightSurcharge && (
@@ -478,6 +489,10 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
                 • Resane de huecos/fisuras: +${paintingCalculation.patchingRepairAmount.toFixed(2)}
               </p>
             )}
+            <div className="pt-1.5 border-t border-[#B98A43]/20 flex justify-between font-bold text-[#8C601E]">
+              <span>Total Estimado:</span>
+              <span>${paintingCalculation.total.toFixed(2)}</span>
+            </div>
           </div>
         )}
 

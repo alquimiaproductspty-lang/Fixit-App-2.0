@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Service, PaintingCalculation, ACInstallationDetails } from '../types';
-import { PaintingCalculator } from './PaintingCalculator';
+import { PinturaService } from './PinturaService';
 import { 
   ArrowLeft, 
   CheckCircle2, 
@@ -130,37 +130,55 @@ export const ServicePriceStep: React.FC<ServicePriceStepProps> = ({
 
   // If Painting calculator is active for per_unit painting
   if (isPaintingPerUnit && isShowingPaintingCalculator) {
-    return (
-      <div className="w-full max-w-xl mx-auto px-4 py-4 sm:py-6 space-y-5">
-        {/* Top Back Navigation */}
-        <div className="flex items-center justify-between">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1.5 text-xs font-semibold text-[#756A5D] hover:text-[#1F2421] p-2 rounded-xl hover:bg-[#DED4C5]/30 transition-colors active:scale-95 cursor-pointer"
-            id="btn-back-to-services"
-          >
-            <ArrowLeft className="w-4 h-4 stroke-[2]" />
-            <span>Volver a lista de servicios</span>
-          </button>
-          <span className="text-[11px] font-semibold text-[#B98A43] bg-[#B98A43]/10 border border-[#B98A43]/20 px-2.5 py-1 rounded-full">
-            Pintura Residencial
-          </span>
-        </div>
+    const isExteriorInitial = 
+      service.id === 'PIN-003' || 
+      service.service_name.toLowerCase().includes('exterior') ||
+      service.service_name.toLowerCase().includes('fachada');
 
-        {/* Painting Calculator Component */}
-        <PaintingCalculator
-          initialService={service}
-          initialCalculation={currentPaintingCalc}
-          onConfirmCalculation={(calc, updatedService) => {
-            setCurrentPaintingCalc(calc);
-            onContinue({
-              paintingCalculation: calc,
-              adjustedPrice: calc.total,
-            });
-          }}
-          onCancel={() => setIsShowingPaintingCalculator(false)}
-        />
-      </div>
+    return (
+      <PinturaService
+        initialArea={currentPaintingCalc?.areaType || (isExteriorInitial ? 'exterior' : 'interior')}
+        initialM2={currentPaintingCalc?.areaM2 || 0}
+        initialModality={currentPaintingCalc?.modality || 'solo_mano_obra'}
+        onBack={onBack}
+        onSolicitarServicio={(calc: any) => {
+          const paintingCalc: PaintingCalculation = {
+            serviceId: service.id,
+            serviceName: service.service_name,
+            areaM2: calc.m2,
+            pricePerM2: calc.rateManoDeObra,
+            subtotal: calc.costoManoDeObra,
+            hasHeightSurcharge: false,
+            heightSurchargeAmount: 0,
+            includePaintMaterials: calc.modality === 'mano_obra_materiales',
+            paintMaterialsAmount: calc.costoMateriales,
+            hasPatchingRepair: false,
+            patchingRepairAmount: 0,
+            minimumServiceCharge: 0,
+            minimumChargeApplied: false,
+            total: calc.granTotal,
+            roomDetails: `${calc.areaName} - ${calc.m2} m² (${calc.modalityName})`,
+            areaType: calc.areaType,
+            areaName: calc.areaName,
+            modality: calc.modality,
+            modalityName: calc.modalityName,
+            galones: calc.galones,
+            costoMateriales: calc.costoMateriales,
+            costoManoDeObra: calc.costoManoDeObra,
+            rateManoDeObra: calc.rateManoDeObra,
+            precioGalon: calc.precioGalon,
+            calidadPintura: calc.calidadPintura,
+            nombreCalidad: calc.nombreCalidad,
+            costoPintura: calc.costoPintura,
+            costoInsumosFijo: calc.costoInsumosFijo,
+          };
+          setCurrentPaintingCalc(paintingCalc);
+          onContinue({
+            paintingCalculation: paintingCalc,
+            adjustedPrice: calc.granTotal,
+          });
+        }}
+      />
     );
   }
 

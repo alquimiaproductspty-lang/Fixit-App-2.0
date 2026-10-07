@@ -109,9 +109,14 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
+  } catch (error: any) {
+    // Gracefully handle transient connectivity or offline mode
+    if (error?.code === 'unavailable') {
+      // Normal offline resilience behavior, Firestore SDK logs its own notice
+      return;
+    }
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      console.warn('[FIXIT Firebase] Operating in offline mode with cached persistence.');
     }
   }
 }

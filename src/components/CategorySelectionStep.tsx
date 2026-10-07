@@ -11,17 +11,20 @@ import {
   ChevronRight,
   ShieldCheck,
   BadgeCheck,
+  Building2,
 } from 'lucide-react';
 
 interface CategorySelectionStepProps {
   onSelectCategory: (category: ServiceCategory) => void;
   onSelectService?: (service: Service) => void;
   onOpenWhatsAppDirect?: () => void;
+  onNavigateToPro?: () => void;
 }
 
 export const CategorySelectionStep: React.FC<CategorySelectionStepProps> = ({
   onSelectCategory,
   onOpenWhatsAppDirect,
+  onNavigateToPro,
 }) => {
   const activeCategories = FIXIT_CATEGORIES
     .filter((c) => c.isAvailable)
@@ -154,7 +157,7 @@ export const CategorySelectionStep: React.FC<CategorySelectionStepProps> = ({
       </section>
 
       {/* 3. Bloque Compacto de Contacto por WhatsApp para Servicios Diferentes */}
-      <section className="pt-0.5">
+      <section className="pt-0.5 space-y-2.5">
         <button
           type="button"
           onClick={onOpenWhatsAppDirect}
@@ -182,6 +185,39 @@ export const CategorySelectionStep: React.FC<CategorySelectionStepProps> = ({
             <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
           </div>
         </button>
+
+        {/* 4. Bloque Corporativo FIXIT Pro (B2B) */}
+        {onNavigateToPro && (
+          <button
+            type="button"
+            onClick={onNavigateToPro}
+            className="w-full group bg-[#082D60] hover:bg-[#072550] text-white rounded-2xl p-4 shadow-2xs hover:shadow-xs transition-all flex items-center justify-between gap-3 text-left active:scale-[0.99] cursor-pointer"
+            id="btn-category-pro-b2b"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/20">
+                <Building2 className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-serif font-black text-sm tracking-tight text-white">
+                    FIXIT Pro
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-white/20 uppercase tracking-wider text-sky-200">
+                    B2B
+                  </span>
+                </div>
+                <p className="text-xs text-white/80 line-clamp-1 mt-0.5">
+                  Mantenimiento por suscripción para locales comerciales en Panamá.
+                </p>
+              </div>
+            </div>
+            <div className="hidden sm:flex items-center gap-1 text-xs font-bold text-sky-200 group-hover:text-white shrink-0 group-hover:translate-x-0.5 transition-all">
+              <span>Ver planes</span>
+              <ChevronRight className="w-4 h-4" />
+            </div>
+          </button>
+        )}
       </section>
     </div>
   );

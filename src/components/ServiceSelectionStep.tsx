@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Service, ServiceCategory } from '../types';
+import { Service, ServiceCategory, PaintingCalculation } from '../types';
 import { getServicesByCategory, FIXIT_CATEGORIES } from '../data/catalog';
 import { FIXIT_IMAGES } from '../assets/images';
 import { fetchServicesFromServer } from '../lib/api';
-import { ArrowLeft, ChevronRight, ShieldCheck, Clock, AlertCircle, Wrench, Layers, Tv } from 'lucide-react';
+import { PinturaService } from './PinturaService';
+import { ArrowLeft, ChevronRight, ShieldCheck, Clock, AlertCircle, Wrench, Layers, Tv, Paintbrush, ArrowRight } from 'lucide-react';
 
 interface ServiceSelectionStepProps {
   category: ServiceCategory;
   onSelectService: (service: Service) => void;
   onBack: () => void;
+  onConfirmPaintingCalculation?: (calculation: PaintingCalculation, service: Service) => void;
 }
 
 export const ServiceSelectionStep: React.FC<ServiceSelectionStepProps> = ({
   category,
   onSelectService,
   onBack,
+  onConfirmPaintingCalculation,
 }) => {
   const defaultServices = useMemo(() => getServicesByCategory(category), [category]);
   const [customServices, setCustomServices] = useState<Service[] | null>(null);
@@ -176,6 +179,114 @@ export const ServiceSelectionStep: React.FC<ServiceSelectionStepProps> = ({
     );
   };
 
+  const isPaintingCategory = category.toLowerCase().includes('pintur');
+
+  // Filtrado de servicios secundarios de pintura conforme al requerimiento:
+  // Mantener ÚNICAMENTE: 'Pintura de cielo raso / techo' y 'Resane de paredes'
+  // Eliminar: 'Pintura interior básica', 'Pintura interior estándar' y 'Pintura exterior (fachadas y muros)'
+  const secondaryPaintingServices = useMemo(() => {
+    if (!isPaintingCategory) return [];
+    return services.filter((s) => {
+      const name = s.service_name.toLowerCase();
+      const id = s.id.toUpperCase();
+      // Excluir explícitamente los que ahora maneja la calculadora
+      if (
+        id === 'PIN-001' || 
+        id === 'PIN-002' || 
+        id === 'PIN-003' ||
+        name.includes('interior básica') || 
+        name.includes('interior basica') ||
+        name.includes('interior estándar') || 
+        name.includes('interior estandar') ||
+        (name.includes('exterior') && !name.includes('cielo'))
+      ) {
+        return false;
+      }
+      // Mantener únicamente 'Pintura de cielo raso / techo' y 'Resane de paredes'
+      const isCieloRaso = name.includes('cielo raso') || name.includes('techo') || id === 'PIN-004';
+      const isResane = name.includes('resane') || name.includes('reparación de paredes') || name.includes('reparacion de paredes') || id === 'PIN-005';
+      return isCieloRaso || isResane;
+    });
+  }, [isPaintingCategory, services]);
+
+  const handlePaintingSubmit = (calc: any) => {
+    const isExterior = calc.areaType === 'exterior';
+    const matchedService = isExterior 
+      ? (services.find((s) => s.id === 'PIN-003') || services.find((s) => s.service_name.toLowerCase().includes('exterior')) || services[0])
+      : (services.find((s) => s.id === 'PIN-001') || services[0]);
+
+    const paintingCalc: PaintingCalculation = {
+      serviceId: matchedService.id,
+      serviceName: calc.areaName,
+      areaM2: calc.m2,
+      pricePerM2: calc.rateManoDeObra,
+      subtotal: calc.costoManoDeObra,
+      hasHeightSurcharge: false,
+      heightSurchargeAmount: 0,
+      includePaintMaterials: calc.modality === 'mano_obra_materiales',
+      paintMaterialsAmount: calc.costoMateriales,
+      calidadPintura: calc.calidadPintura,
+      nombreCalidad: calc.nombreCalidad,
+      precioGalon: calc.precioGalon,
+      costoPintura: calc.costoPintura,
+      costoInsumosFijo: calc.costoInsumosFijo,
+      hasPatchingRepair: false,
+      patchingRepairAmount: 0,
+      minimumServiceCharge: 0,
+      minimumChargeApplied: false,
+      total: calc.granTotal,
+      roomDetails: `${calc.areaName} - ${calc.m2} m² (${calc.modalityName}${calc.nombreCalidad ? ` • ${calc.nombreCalidad}` : ''})`,
+      areaType: calc.areaType,
+      areaName: calc.areaName,
+      modality: calc.modality,
+      modalityName: calc.modalityName,
+      galones: calc.galones,
+      costoMateriales: calc.costoMateriales,
+      costoManoDeObra: calc.costoManoDeObra,
+      rateManoDeObra: calc.rateManoDeObra,
+    };
+
+    if (onConfirmPaintingCalculation) {
+      onConfirmPaintingCalculation(paintingCalc, matchedService);
+    } else {
+      onSelectService(matchedService);
+    }
+  };
+
+  // VISTA ESPECIAL PARA PINTURA: La Calculadora es el cuerpo principal
+  if (isPaintingCategory) {
+    return (
+      <div className="w-full max-w-2xl sm:max-w-3xl mx-auto px-4 py-4 sm:py-6 space-y-8 font-sans">
+        {/* Cuerpo Principal: Calculadora Interactiva de Pintura con Máxima Jerarquía */}
+        <div className="w-full">
+          <PinturaService
+            onBack={onBack}
+            onSolicitarServicio={handlePaintingSubmit}
+          />
+        </div>
+
+        {/* Sección Secundaria: Servicios Complementarios (Cielo Raso y Resane de Paredes) */}
+        <section className="pt-6 border-t-2 border-[#DED4C5]/70 space-y-4">
+          <div className="space-y-1">
+            <span className="text-[11px] font-bold text-[#0B72D9] uppercase tracking-wider">
+              Servicios Secundarios Complementarios
+            </span>
+            <h2 className="font-serif font-bold text-lg sm:text-xl text-[#082D60]">
+              Otros Servicios de Pintura Disponibles
+            </h2>
+            <p className="text-xs text-[#756A5D] leading-relaxed">
+              Trabajos especializados de cielo raso o reparación de fisuras y humedad:
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {secondaryPaintingServices.map(renderServiceCard)}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-xl mx-auto px-4 py-3 sm:py-5 space-y-5">
       {/* Top Navigation */}
@@ -219,6 +330,35 @@ export const ServiceSelectionStep: React.FC<ServiceSelectionStepProps> = ({
           </p>
         </div>
       </div>
+
+      {/* Cotizador de Pintura Interactivo destacado */}
+      {category.toLowerCase().includes('pintur') && (
+        <button
+          type="button"
+          onClick={() => {
+            const firstPainting = services.find((s) => s.pricing_type === 'per_unit') || services[0];
+            if (firstPainting) onSelectService(firstPainting);
+          }}
+          className="w-full text-left bg-gradient-to-r from-blue-950 to-blue-600 text-white rounded-2xl p-8 shadow-lg transition-all flex flex-col sm:flex-row items-center justify-between gap-6 cursor-pointer group active:scale-[0.99]"
+        >
+          <div className="space-y-2 flex-1">
+            <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-white/90 bg-white/15 px-3 py-1 rounded-full border border-white/20 backdrop-blur-sm">
+              <Paintbrush className="w-3.5 h-3.5 text-white" />
+              <span>Cotizador Interactivo en Tiempo Real</span>
+            </div>
+            <h2 className="font-serif font-bold text-xl sm:text-2xl text-white">
+              Calcula tu proyecto de pintura por m²
+            </h2>
+            <p className="text-xs sm:text-sm text-white leading-relaxed max-w-xl">
+              Selecciona área interior o exterior, ingresa los metros cuadrados y elige solo mano de obra o con materiales incluidos con cálculo en vivo.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 bg-white text-blue-900 font-semibold hover:bg-gray-100 rounded-xl px-5 py-3.5 text-xs sm:text-sm shadow-md shrink-0 group-hover:translate-x-0.5 transition-all">
+            <span>Abrir Cotizador</span>
+            <ArrowRight className="w-4 h-4 text-blue-900" />
+          </div>
+        </button>
+      )}
 
       {/* Services List / Sections */}
       <div className="space-y-6">
