@@ -33,6 +33,20 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
         onGoBack();
       }
     } catch (err: unknown) {
+      const errCode = (err as { code?: string })?.code;
+      if (errCode === 'auth/unauthorized-domain') {
+        console.error(
+          '[AuthLoginScreen] Google Auth falló por auth/unauthorized-domain. Verifica la lista de dominios autorizados en Firebase Console (Authentication > Settings > Authorized domains).'
+        );
+      } else if (errCode === 'auth/popup-blocked') {
+        console.error('[AuthLoginScreen] Google Auth falló por auth/popup-blocked. La ventana emergente fue bloqueada por el navegador.');
+      } else if (errCode === 'auth/popup-closed-by-user') {
+        console.warn('[AuthLoginScreen] El usuario cerró la ventana emergente de Google antes de completar la verificación.');
+      } else if (errCode === 'auth/admin-restricted-operation') {
+        console.error('[AuthLoginScreen] Google Auth falló por auth/admin-restricted-operation. Operación restringida en Firebase Console.');
+      } else {
+        console.error('[AuthLoginScreen] Error al iniciar sesión con Google:', err);
+      }
       setErrorMessage(mapAuthErrorToFriendlyMessage(err));
     } finally {
       setIsGoogleLoading(false);
@@ -52,6 +66,15 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
         onGoBack();
       }
     } catch (err: unknown) {
+      const errCode = (err as { code?: string })?.code;
+      if (errCode === 'auth/admin-restricted-operation' || errCode === 'auth/operation-not-allowed') {
+        console.warn(
+          `[AuthLoginScreen] Aviso: ${errCode}. Para usar cuentas anónimas nativas en Firebase, activa el proveedor "Anónimo" en Firebase Console (Authentication > Sign-in method > Anónimo).`,
+          err
+        );
+      } else {
+        console.error('[AuthLoginScreen] Error al iniciar sesión como invitado:', err);
+      }
       setErrorMessage(mapAuthErrorToFriendlyMessage(err));
     } finally {
       setIsGuestLoading(false);

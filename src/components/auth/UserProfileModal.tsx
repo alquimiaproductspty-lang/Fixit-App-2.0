@@ -244,7 +244,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 id="profile-email-input"
                 type="email"
                 disabled
-                value={user.email}
+                value={user.email || (user.isAnonymous ? 'Sesión de Invitado' : '')}
                 className="w-full py-2.5 pl-9 pr-3 rounded-2xl border border-[#DED4C5]/80 bg-[#DED4C5]/20 text-xs text-[#756A5D] cursor-not-allowed select-none"
               />
               <Mail className="w-4 h-4 text-[#756A5D] absolute left-3 top-3 pointer-events-none" />

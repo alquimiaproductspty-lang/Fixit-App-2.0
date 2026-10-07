@@ -142,6 +142,7 @@ export interface ActiveUser {
   isOperator: boolean;
   isTechnician: boolean;
   isClient: boolean;
+  isAnonymous?: boolean;
   technicianId?: string;
 }
 
@@ -174,18 +175,21 @@ export function buildActiveUser(
   status: UserStatus = 'ACTIVE',
   phone?: string,
   technicianId?: string,
-  photoURL?: string
+  photoURL?: string,
+  isAnonymous?: boolean
 ): ActiveUser {
   const normRole = normalizeRole(role);
   const rawStatus = (status || 'ACTIVE').toUpperCase();
   const normStatus: UserStatus = (rawStatus === 'INACTIVO' || rawStatus === 'INACTIVE') ? 'INACTIVE' : 'ACTIVE';
   const isActive = normStatus === 'ACTIVE';
 
+  const finalDisplayName = displayName || (isAnonymous ? 'Invitado FIXIT' : (email ? email.split('@')[0] : 'Usuario FIXIT'));
+
   return {
     uid,
     email: email || '',
-    displayName: displayName || email.split('@')[0] || 'Usuario FIXIT',
-    nombre: displayName || email.split('@')[0] || 'Usuario FIXIT',
+    displayName: finalDisplayName,
+    nombre: finalDisplayName,
     phone,
     telefono: phone,
     photoURL,
@@ -197,6 +201,7 @@ export function buildActiveUser(
     isOperator: normRole === 'ADMIN' || normRole === 'OPERATOR',
     isTechnician: normRole === 'ADMIN' || normRole === 'OPERATOR' || normRole === 'TECHNICIAN',
     isClient: normRole === 'CLIENT',
+    isAnonymous: !!isAnonymous,
     technicianId: normRole === 'TECHNICIAN' ? (technicianId || uid) : undefined,
   };
 }
@@ -205,8 +210,9 @@ export function buildActiveUser(
 export async function syncUserWithFirestore(fbUser: FirebaseUser): Promise<ActiveUser> {
   const userDocRef = doc(db, 'users', fbUser.uid);
   const now = new Date().toISOString();
+  const isAnonymous = !!fbUser.isAnonymous;
 
-  const isBootstrappedAdmin = !!fbUser.email && (
+  const isBootstrappedAdmin = !isAnonymous && !!fbUser.email && (
     fbUser.email.toLowerCase() === 'alquimiaproductspty@gmail.com' ||
     fbUser.email.toLowerCase() === 'ricardog20852016@gmail.com'
   );
@@ -224,7 +230,7 @@ export async function syncUserWithFirestore(fbUser: FirebaseUser): Promise<Activ
       try {
         await updateDoc(userDocRef, {
           photoURL: fbUser.photoURL || data.photoURL || '',
-          displayName: data.displayName || fbUser.displayName || 'Usuario FIXIT',
+          displayName: data.displayName || fbUser.displayName || (isAnonymous ? 'Invitado FIXIT' : 'Usuario FIXIT'),
           lastLoginAt: now,
           updatedAt: now,
         });
@@ -235,33 +241,39 @@ export async function syncUserWithFirestore(fbUser: FirebaseUser): Promise<Activ
       const activeUser = buildActiveUser(
         fbUser.uid,
         fbUser.email || data.email || '',
-        data.displayName || fbUser.displayName || '',
+        data.displayName || fbUser.displayName || (isAnonymous ? 'Invitado FIXIT' : ''),
         role,
         status,
         data.phone || fbUser.phoneNumber || undefined,
         data.technicianId,
-        fbUser.photoURL || data.photoURL || undefined
+        fbUser.photoURL || data.photoURL || undefined,
+        isAnonymous
       );
 
       return activeUser;
     } else {
       // Create new user profile in Firestore
       const role = isBootstrappedAdmin ? 'ADMIN' : 'customer';
+      const defaultName = isAnonymous ? 'Invitado FIXIT' : (fbUser.displayName || fbUser.email?.split('@')[0] || (isBootstrappedAdmin ? 'Admin FIXIT' : 'Usuario FIXIT'));
       const profileData = {
         uid: fbUser.uid,
         email: (fbUser.email || '').toLowerCase().trim(),
-        displayName: fbUser.displayName || fbUser.email?.split('@')[0] || (isBootstrappedAdmin ? 'Admin FIXIT' : ''),
+        displayName: defaultName,
         phone: fbUser.phoneNumber || '',
         photoURL: fbUser.photoURL || '',
         role,
         city: 'Ciudad de Panamá',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        marketingOptIn: true,
+        marketingOptIn: !isAnonymous,
         status: 'active',
       };
 
-      await setDoc(userDocRef, profileData);
+      try {
+        await setDoc(userDocRef, profileData);
+      } catch (setErr) {
+        console.warn('[FIXIT Auth] Aviso al crear documento en Firestore durante sync:', setErr);
+      }
 
       return buildActiveUser(
         fbUser.uid,
@@ -271,7 +283,8 @@ export async function syncUserWithFirestore(fbUser: FirebaseUser): Promise<Activ
         'ACTIVE',
         profileData.phone,
         undefined,
-        profileData.photoURL
+        profileData.photoURL,
+        isAnonymous
       );
     }
   } catch (err) {
@@ -281,12 +294,13 @@ export async function syncUserWithFirestore(fbUser: FirebaseUser): Promise<Activ
     return buildActiveUser(
       fbUser.uid,
       fbUser.email || '',
-      fbUser.displayName || fbUser.email?.split('@')[0] || 'Usuario FIXIT',
+      fbUser.displayName || (isAnonymous ? 'Invitado FIXIT' : (fbUser.email?.split('@')[0] || 'Usuario FIXIT')),
       isBootstrappedAdmin ? 'ADMIN' : 'CLIENT',
       'ACTIVE',
       fbUser.phoneNumber || undefined,
       undefined,
-      fbUser.photoURL || undefined
+      fbUser.photoURL || undefined,
+      isAnonymous
     );
   }
 }
@@ -326,14 +340,17 @@ export const authService = {
     return currentAuthState;
   },
 
-  // Google Sign-In with popup (Real Firebase Auth flow)
+  // Google Sign-In with popup (Real Firebase Auth flow via Client SDK)
   async loginWithGoogle(): Promise<ActiveUser> {
     currentAuthState = { ...currentAuthState, loading: true, error: null };
     notifyAuthListeners();
 
     try {
+      // 1. Instanciación correcta de GoogleAuthProvider
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
+
+      // 2. Ejecución con popup mediante el SDK de cliente de Firebase (firebase/auth)
       const result = await signInWithPopup(auth, provider);
       const activeUser = await syncUserWithFirestore(result.user);
       
@@ -341,42 +358,109 @@ export const authService = {
       notifyAuthListeners();
       return activeUser;
     } catch (err: any) {
-      console.warn('[FIXIT Auth] loginWithGoogle notice:', err?.message || err);
-      currentAuthState = { ...currentAuthState, loading: false, error: err.message };
+      const errorCode = err?.code || '';
+      const errorMessage = err?.message || String(err);
+
+      // Bloques de depuración en consola con diagnósticos específicos para facilitar la resolución
+      if (errorCode === 'auth/unauthorized-domain') {
+        const currentHostname = typeof window !== 'undefined' ? window.location.hostname : 'desconocido';
+        console.error(
+          `[FIXIT Auth Error] auth/unauthorized-domain: El dominio actual ("${currentHostname}") no está autorizado para OAuth en Firebase Authentication.\n` +
+          `-> Solución: Abre Firebase Console (https://console.firebase.google.com/) > Tu Proyecto > Authentication > Settings (Configuración) > Authorized domains (Dominios autorizados) y añade "${currentHostname}".`
+        );
+      } else if (errorCode === 'auth/popup-blocked') {
+        console.error(
+          '[FIXIT Auth Error] auth/popup-blocked: La ventana emergente de Google fue bloqueada por el navegador. El usuario o navegador debe permitir ventanas emergentes para este dominio.'
+        );
+      } else if (errorCode === 'auth/popup-closed-by-user' || errorCode === 'auth/cancelled-popup-request') {
+        console.warn(
+          '[FIXIT Auth] auth/popup-closed-by-user: La ventana emergente de Google fue cerrada antes de completar la verificación.'
+        );
+      } else if (errorCode === 'auth/operation-not-allowed') {
+        console.error(
+          '[FIXIT Auth Error] auth/operation-not-allowed: El proveedor Google Sign-In no está habilitado en Firebase Console > Authentication > Sign-in method.'
+        );
+      } else if (errorCode === 'auth/admin-restricted-operation') {
+        console.error(
+          '[FIXIT Auth Error] auth/admin-restricted-operation: La operación de Google Auth está restringida por la configuración del proyecto en Firebase Console.'
+        );
+      } else {
+        console.error('[FIXIT Auth Error] Error general en loginWithGoogle:', {
+          code: errorCode,
+          message: errorMessage,
+          raw: err,
+        });
+      }
+
+      currentAuthState = { ...currentAuthState, loading: false, error: errorMessage };
       notifyAuthListeners();
       throw err;
     }
   },
 
   // Anonymous Guest Sign-In (Frictionless entry)
+  // Utiliza estrictamente el SDK de cliente de Firebase (firebase/auth)
   async loginAnonymously(): Promise<ActiveUser> {
     currentAuthState = { ...currentAuthState, loading: true, error: null };
     notifyAuthListeners();
 
     try {
+      // 1. Llamada estrictamente mediante el SDK de cliente de Firebase
       const result = await signInAnonymously(auth);
       const activeUser = await syncUserWithFirestore(result.user);
       currentAuthState = { user: activeUser, loading: false, error: null };
       notifyAuthListeners();
       return activeUser;
     } catch (err: any) {
-      console.warn('[FIXIT Auth] loginAnonymously notice:', err?.message || err);
-      // Graceful local guest fallback if Anonymous Auth provider is not enabled in Firebase Console
-      if (err?.code === 'auth/operation-not-allowed' || err?.code === 'auth/admin-restricted-operation') {
+      const errorCode = err?.code || '';
+      const errorMessage = err?.message || String(err);
+
+      // Diagnóstico detallado para auth/admin-restricted-operation y auth/operation-not-allowed
+      if (errorCode === 'auth/admin-restricted-operation' || errorCode === 'auth/operation-not-allowed') {
+        console.warn(
+          `[FIXIT Auth Warning] "${errorCode}": El método de inicio de sesión Anónimo no está habilitado en Firebase Console.\n` +
+          `-> Explicación: Este error ("${errorCode}") es devuelto por el SDK de cliente de Firebase (firebase/auth) cuando el proveedor Anónimo no ha sido activado en la consola del proyecto.\n` +
+          `-> No se debe a una mezcla con Firebase Admin SDK, sino a una restricción de configuración en Firebase Authentication.\n` +
+          `-> Solución en Firebase Console: Ve a https://console.firebase.google.com/ > Tu Proyecto > Authentication > Sign-in method > Proveedores nativos > Anónimo (Anonymous) > Habilitar > Guardar.\n` +
+          `-> Resiliencia: Se ha creado una sesión de invitado local segura para que el usuario explore la aplicación sin bloqueos.`
+        );
         const fallbackGuest: ActiveUser = buildActiveUser(
           'guest-' + Date.now(),
           '',
           'Invitado FIXIT',
           'CLIENT',
-          'ACTIVE'
+          'ACTIVE',
+          undefined,
+          undefined,
+          undefined,
+          true
         );
         currentAuthState = { user: fallbackGuest, loading: false, error: null };
         notifyAuthListeners();
         return fallbackGuest;
       }
-      currentAuthState = { ...currentAuthState, loading: false, error: err.message };
+
+      console.error('[FIXIT Auth Error] Error en loginAnonymously:', {
+        code: errorCode,
+        message: errorMessage,
+        raw: err,
+      });
+
+      // Para cualquier otro error inesperado, permitir fallback a invitado para máxima resiliencia
+      const fallbackGuest: ActiveUser = buildActiveUser(
+        'guest-' + Date.now(),
+        '',
+        'Invitado FIXIT',
+        'CLIENT',
+        'ACTIVE',
+        undefined,
+        undefined,
+        undefined,
+        true
+      );
+      currentAuthState = { user: fallbackGuest, loading: false, error: null };
       notifyAuthListeners();
-      throw err;
+      return fallbackGuest;
     }
   },
 
@@ -469,6 +553,18 @@ export const authService = {
   }): Promise<ActiveUser> {
     const currentUser = auth.currentUser;
     if (!currentUser) {
+      if (currentAuthState.user) {
+        const updatedUser: ActiveUser = {
+          ...currentAuthState.user,
+          displayName: updates.displayName?.trim() || currentAuthState.user.displayName,
+          nombre: updates.displayName?.trim() || currentAuthState.user.nombre,
+          phone: updates.phone?.trim() ?? currentAuthState.user.phone,
+          telefono: updates.phone?.trim() ?? currentAuthState.user.telefono,
+        };
+        currentAuthState = { ...currentAuthState, user: updatedUser };
+        notifyAuthListeners();
+        return updatedUser;
+      }
       throw new Error('No hay una sesión activa para actualizar el perfil.');
     }
 
@@ -501,7 +597,8 @@ export const authService = {
       status,
       data.phone || safePayload.phone || currentAuthState.user?.phone || undefined,
       data.technicianId,
-      currentUser.photoURL || data.photoURL || undefined
+      currentUser.photoURL || data.photoURL || undefined,
+      currentUser.isAnonymous
     );
 
     currentAuthState = { user: activeUser, loading: false, error: null };
@@ -522,8 +619,12 @@ export const authService = {
   // Sign out
   async signOut(): Promise<void> {
     try {
-      await fbSignOut(auth);
-    } catch {}
+      if (auth.currentUser) {
+        await fbSignOut(auth);
+      }
+    } catch (err) {
+      console.warn('[FIXIT Auth] Error al cerrar sesión:', err);
+    }
     currentAuthState = { user: null, loading: false, error: null };
     notifyAuthListeners();
   },

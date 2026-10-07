@@ -43,7 +43,7 @@ export function mapAuthErrorToFriendlyMessage(error: unknown): string {
     errString.includes('auth/unauthorized-domain') ||
     errString.includes('unauthorized domain')
   ) {
-    return 'El acceso con Google no pudo completarse debido a restricciones de dominio. Puedes continuar con correo y contraseña.';
+    return 'El acceso con Google no pudo completarse debido a que este dominio no está en la lista de dominios autorizados de Firebase Console. Puedes continuar como invitado.';
   }
 
   // 4. Missing initial state / Storage partitioning / SessionStorage inaccesible en Safari o PWA
@@ -55,7 +55,7 @@ export function mapAuthErrorToFriendlyMessage(error: unknown): string {
     errString.includes('sessionStorage is inaccessible') ||
     errString.includes('sessionStorage')
   ) {
-    return 'El acceso con Google no pudo completarse. Puedes continuar con correo y contraseña.';
+    return 'El acceso con Google no pudo completarse. Puedes continuar como invitado o intentar nuevamente.';
   }
 
   // 5. Método de autenticación no habilitado en Firebase Console (operation-not-allowed)
@@ -63,7 +63,16 @@ export function mapAuthErrorToFriendlyMessage(error: unknown): string {
     errCode === 'auth/operation-not-allowed' ||
     errString.includes('operation-not-allowed')
   ) {
-    return 'El inicio de sesión con correo y contraseña no está habilitado en este proyecto de Firebase. Por favor utiliza el botón "Continuar con Google".';
+    return 'Este método de autenticación no está habilitado en Firebase Console. Puedes continuar como invitado o ingresar con Google.';
+  }
+
+  // 5b. Operación restringida por configuración en Firebase Console (admin-restricted-operation)
+  if (
+    errCode === 'auth/admin-restricted-operation' ||
+    errString.includes('admin-restricted-operation') ||
+    errString.includes('ADMIN_ONLY_OPERATION')
+  ) {
+    return 'Esta operación de autenticación está restringida en Firebase Console. Puedes continuar como invitado o ingresar con Google.';
   }
 
   // 6. Configuración de Google OAuth / Provider no habilitado o restringido (403 restricted_client)

@@ -47,6 +47,18 @@ export const AuthRegisterScreen: React.FC<AuthRegisterScreenProps> = ({
         onGoBack();
       }
     } catch (err: unknown) {
+      const errCode = (err as { code?: string })?.code;
+      if (errCode === 'auth/unauthorized-domain') {
+        console.error(
+          '[AuthRegisterScreen] Google Auth falló por auth/unauthorized-domain. Verifica la lista de dominios autorizados en Firebase Console (Authentication > Settings > Authorized domains).'
+        );
+      } else if (errCode === 'auth/popup-blocked') {
+        console.error('[AuthRegisterScreen] Google Auth falló por auth/popup-blocked. La ventana emergente fue bloqueada por el navegador.');
+      } else if (errCode === 'auth/popup-closed-by-user') {
+        console.warn('[AuthRegisterScreen] El usuario cerró la ventana emergente de Google antes de completar la verificación.');
+      } else {
+        console.error('[AuthRegisterScreen] Error al registrarse con Google:', err);
+      }
       setErrorMessage(mapAuthErrorToFriendlyMessage(err));
     } finally {
       setIsGoogleLoading(false);
