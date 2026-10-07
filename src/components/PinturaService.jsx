@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { 
   Paintbrush, 
   Home, 
@@ -45,8 +44,6 @@ export const PinturaService = ({
   initialCalidad = 'estandar',
   whatsAppPhone = '50765356072'
 }) => {
-  const { t } = useTranslation();
-
   // 1. Paso 1: Selección de Área ('interior' | 'exterior')
   const [areaType, setAreaType] = useState(initialArea);
 
@@ -223,10 +220,10 @@ export const PinturaService = ({
               <span>Cotizador Interactivo en Tiempo Real</span>
             </div>
             <h1 className="text-2xl sm:text-3xl lg:text-4xl font-serif font-bold text-white tracking-tight leading-tight">
-              {t('pinturaService.title', 'Cotizador de Pintura Residencial')}
+              Cotizador de Pintura Residencial y Comercial
             </h1>
             <p className="text-xs sm:text-sm text-white leading-relaxed max-w-xl">
-              {t('pinturaService.subtitle', 'Calcula tu presupuesto estimado al instante en 4 simples pasos')}
+              Ingresa las dimensiones de tus paredes y calcula al instante el presupuesto con mano de obra calificada, calidad de pintura a tu medida y consumibles de protección.
             </p>
           </div>
           <div className="shrink-0">
@@ -249,7 +246,7 @@ export const PinturaService = ({
         <div className="flex items-center justify-between">
           <label className="text-xs sm:text-sm font-bold uppercase tracking-wider text-[#082D60] flex items-center gap-2.5">
             <span className="w-6 h-6 rounded-full bg-[#082D60] text-white flex items-center justify-center text-xs font-bold">1</span>
-            <span>{t('pinturaService.step1Title', '1. Selección de Área')}</span>
+            <span>Selección de Área</span>
           </label>
           <span className="text-xs text-[#756A5D] font-medium">
             Tarifa base desde {areaType === 'interior' ? '$2.50/m²' : '$3.50/m²'}
@@ -283,10 +280,10 @@ export const PinturaService = ({
 
             <div>
               <h3 className="font-serif font-bold text-base text-[#1F2421]">
-                {t('pinturaService.interior', 'Pintura Interior')}
+                Pintura Interior
               </h3>
               <p className="text-xs text-[#756A5D] mt-1 leading-relaxed">
-                {t('pinturaService.interiorDesc', 'Paredes de recámaras, salas, pasillos, estudios y áreas bajo techo protegidas de la intemperie.')}
+                Paredes de recámaras, salas, pasillos, estudios y áreas bajo techo protegidas de la intemperie.
               </p>
             </div>
 
@@ -326,10 +323,10 @@ export const PinturaService = ({
 
             <div>
               <h3 className="font-serif font-bold text-base text-[#1F2421]">
-                {t('pinturaService.exterior', 'Pintura Exterior')}
+                Pintura Exterior
               </h3>
               <p className="text-xs text-[#756A5D] mt-1 leading-relaxed">
-                {t('pinturaService.exteriorDesc', 'Fachadas, muros perimetrales, balcones y terrazas con exposición a sol directo y lluvias tropicales.')}
+                Fachadas, muros perimetrales, balcones y terrazas con exposición a sol directo y lluvias tropicales.
               </p>
             </div>
 
@@ -355,7 +352,7 @@ export const PinturaService = ({
             className="text-xs sm:text-sm font-bold uppercase tracking-wider text-[#082D60] flex items-center gap-2.5"
           >
             <span className="w-6 h-6 rounded-full bg-[#082D60] text-white flex items-center justify-center text-xs font-bold">2</span>
-            <span>{t('pinturaService.step2Title', '2. Área Total a Pintar (m²)')}</span>
+            <span>Área Total a Pintar (m²)</span>
           </label>
           <span className="text-xs text-[#756A5D] font-medium">
             Metros cuadrados
@@ -447,7 +444,7 @@ export const PinturaService = ({
         <div className="flex items-center justify-between">
           <label className="text-xs sm:text-sm font-bold uppercase tracking-wider text-[#082D60] flex items-center gap-2.5">
             <span className="w-6 h-6 rounded-full bg-[#082D60] text-white flex items-center justify-center text-xs font-bold">3</span>
-            <span>{t('pinturaService.step3Title', '3. Modalidad de Servicio')}</span>
+            <span>Modalidad de Servicio</span>
           </label>
           <span className="text-xs text-[#756A5D] font-medium">
             {isConMateriales ? 'Llave en mano con insumos' : 'Cliente provee pintura'}
@@ -481,10 +478,10 @@ export const PinturaService = ({
 
             <div>
               <h3 className="font-serif font-bold text-base text-[#1F2421]">
-                {t('pinturaService.laborOnly', 'Solo Mano de Obra')}
+                Solo Mano de Obra
               </h3>
               <p className="text-xs text-[#756A5D] mt-1 leading-relaxed">
-                {t('pinturaService.laborOnlyDesc', 'Tú suministras la pintura y nosotros ponemos los pintores expertos, rodillos, brochas, escaleras y protección plástica.')}
+                Tú suministras la pintura y nosotros ponemos los pintores expertos, rodillos, brochas, escaleras y protección plástica.
               </p>
             </div>
 
@@ -520,10 +517,10 @@ export const PinturaService = ({
 
             <div>
               <h3 className="font-serif font-bold text-base text-[#1F2421]">
-                {t('pinturaService.laborAndMaterials', 'Mano de Obra + Materiales')}
+                Mano de Obra + Materiales
               </h3>
               <p className="text-xs text-[#756A5D] mt-1 leading-relaxed">
-                {t('pinturaService.laborAndMaterialsDesc', 'Nos encargamos de todo: pintura según calidad elegida, cinta azul de enmascarar, plásticos y consumibles incluidos.')}
+                Nos encargamos de todo: pintura según calidad elegida, cinta azul de enmascarar, plásticos y consumibles incluidos.
               </p>
             </div>
 
@@ -547,7 +544,7 @@ export const PinturaService = ({
           <div className="flex items-center justify-between">
             <label className="text-xs sm:text-sm font-bold uppercase tracking-wider text-[#082D60] flex items-center gap-2.5">
               <span className="w-6 h-6 rounded-full bg-[#0B72D9] text-white flex items-center justify-center text-xs font-bold">4</span>
-              <span>{t('pinturaService.step4Title', '4. Calidad de la Pintura')}</span>
+              <span>Calidad de la Pintura</span>
             </label>
             <span className="text-xs font-bold text-[#0B72D9]">
               Elige el tipo de pintura
@@ -586,14 +583,14 @@ export const PinturaService = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-serif font-bold text-base text-[#1F2421]">
-                    {t('pinturaService.standardPaint', 'Pintura Estándar')}
+                    Pintura Estándar
                   </h3>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#082D60]/10 text-[#082D60]">
                     Económica
                   </span>
                 </div>
                 <p className="text-xs text-[#756A5D] mt-1.5 leading-relaxed">
-                  {t('pinturaService.standardPaintDesc', 'Pintura látex lavable de buen poder cubritivo. Ideal para interiores residenciales, oficinas y mantenimiento regular.')}
+                  Pintura látex lavable de buen poder cubritivo. Ideal para interiores residenciales, oficinas y mantenimiento regular.
                 </p>
               </div>
 
@@ -634,14 +631,14 @@ export const PinturaService = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-serif font-bold text-base text-[#1F2421]">
-                    {t('pinturaService.premiumPaint', 'Pintura Premium')}
+                    Pintura Premium
                   </h3>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
                     Máxima Calidad
                   </span>
                 </div>
                 <p className="text-xs text-[#756A5D] mt-1.5 leading-relaxed">
-                  {t('pinturaService.premiumPaintDesc', 'Pintura 100% acrílica superlavable antihongos de alta densidad. Máxima resistencia a la humedad de Panamá, intemperie y rayos UV.')}
+                  Pintura 100% acrílica superlavable antihongos de alta densidad. Máxima resistencia a la humedad de Panamá, intemperie y rayos UV.
                 </p>
               </div>
 
@@ -674,7 +671,7 @@ export const PinturaService = ({
           <div className="flex items-center gap-2 text-[#082D60]">
             <FileText className="w-4 h-4 text-[#0B72D9]" />
             <h3 className="font-serif font-bold text-base sm:text-lg">
-              {t('pinturaService.summaryTitle', 'Resumen de Cotización')}
+              Resumen de Cotización en Tiempo Real
             </h3>
           </div>
           <span className="text-xs font-mono font-semibold text-[#756A5D] bg-[#F6F4EF] px-2.5 py-1 rounded-lg">
@@ -758,7 +755,7 @@ export const PinturaService = ({
           <div className="border-t-2 border-dashed border-[#DED4C5] pt-3 flex items-baseline justify-between">
             <div>
               <p className="text-xs uppercase font-extrabold tracking-wider text-[#082D60]">
-                {t('pinturaService.estimatedTotal', 'Total Estimado')}
+                Gran Total a Pagar
               </p>
               <p className="text-[11px] text-[#756A5D]">
                 {isConMateriales 
@@ -795,7 +792,7 @@ export const PinturaService = ({
             }`}
             id="btn-solicitar-pintura"
           >
-            <span>{t('pinturaService.requestService', 'Solicitar este Servicio')}</span>
+            <span>Solicitar Servicio</span>
             <ArrowRight className="w-4 h-4 stroke-[2.5]" />
           </button>
         </div>
