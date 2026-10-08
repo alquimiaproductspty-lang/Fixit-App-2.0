@@ -30,3 +30,57 @@
     letter-spacing: -0.015em;
   }
 }
+
+/* ============================================================== */
+/* GOOGLE TRANSLATE STYLES                                       */
+/* ============================================================== */
+
+/* Ocultar barra superior fija invasiva inyectada por Google Translate */
+.goog-te-banner-frame.skiptranslate,
+.goog-te-banner-frame,
+#goog-gt-tt {
+  display: none !important;
+}
+
+body {
+  top: 0px !important;
+  position: static !important;
+}
+
+/* Estilo estético para el selector de Google Translate */
+.goog-te-gadget-simple {
+  background-color: #FFFEFA !important;
+  border: 1px solid #DED4C5 !important;
+  padding: 4px 10px !important;
+  border-radius: 9999px !important;
+  font-size: 11px !important;
+  font-family: inherit !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+  transition: all 0.2s ease !important;
+}
+
+.goog-te-gadget-simple:hover {
+  border-color: #0B72D9 !important;
+  background-color: #F6F4EF !important;
+}
+
+.goog-te-gadget-simple .goog-te-menu-value span {
+  color: #1F2421 !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+}
+
+.goog-te-gadget-simple img {
+  vertical-align: middle !important;
+}
+
+/* En móviles, posicionar de forma fija abajo a la derecha para no tapar la barra superior */
+@media (max-width: 639px) {
+  #google_translate_element {
+    top: auto !important;
+    bottom: 24px !important;
+    right: 16px !important;
+    position: fixed !important;
+  }
+}
+
