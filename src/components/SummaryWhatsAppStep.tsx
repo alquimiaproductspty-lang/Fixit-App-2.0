@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Service, ServiceRequest, PaintingCalculation, ACInstallationDetails } from '../types';
 import { getFixitWhatsAppUrl, FixitWhatsAppParams, openWhatsAppSafely } from '../lib/whatsapp';
 import { registerOrderOnServer } from '../lib/api';
+import { authService } from '../lib/firebase';
 import {
   ArrowLeft,
   MessageCircle,
@@ -194,15 +195,18 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
     setIsSubmitting(true);
     setSubmitStatusText('Registrando pedido en sistema FIXIT...');
 
-    // 1. Register real order in the backend database
+    // 1. Register real order in the backend database under current guest UID
     let createdOrder: ServiceRequest | null = null;
     try {
+      const currentGuest = authService.getCurrentUser();
       createdOrder = await registerOrderOnServer({
         cliente: {
+          id: currentGuest?.uid || 'usr_guest',
           nombre: customerName.trim(),
           telefono: customerPhone.trim(),
           acepta_terminos_fotos: false,
         },
+        creado_por_uid: currentGuest?.uid || 'usr_guest',
         servicio_probable: service,
         direccion: customerAddress.trim() || 'Ciudad de Panamá',
         referencia: '',

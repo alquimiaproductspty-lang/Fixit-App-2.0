@@ -305,21 +305,55 @@ export async function syncUserWithFirestore(fbUser: FirebaseUser): Promise<Activ
   }
 }
 
+let isAutoSigningInGuest = false;
+
 // Single, clean onAuthStateChanged listener
 onAuthStateChanged(auth, async (fbUser) => {
   if (fbUser) {
+    isAutoSigningInGuest = false;
     try {
       const activeUser = await syncUserWithFirestore(fbUser);
       currentAuthState = { user: activeUser, loading: false, error: null };
     } catch (err: any) {
       console.error('[FIXIT Auth Error] onAuthStateChanged sync error:', err);
-      currentAuthState = { user: null, loading: false, error: err.message };
+      const fallbackGuest = buildActiveUser(
+        fbUser.uid,
+        fbUser.email || '',
+        fbUser.displayName || (fbUser.isAnonymous ? 'Invitado FIXIT' : 'Usuario FIXIT'),
+        'CLIENT',
+        'ACTIVE',
+        undefined,
+        undefined,
+        undefined,
+        fbUser.isAnonymous
+      );
+      currentAuthState = { user: fallbackGuest, loading: false, error: null };
     }
+    notifyAuthListeners();
   } else {
-    // Unauthenticated user in Firebase Auth
-    currentAuthState = { user: null, loading: false, error: null };
+    // Usuario no autenticado en Firebase Auth: inicializar automáticamente sesión de invitado
+    if (!isAutoSigningInGuest) {
+      isAutoSigningInGuest = true;
+      try {
+        await authService.loginAnonymously();
+      } catch (err) {
+        console.warn('[FIXIT Auth] Fallback automático de invitado en carga:', err);
+        const fallbackGuest = buildActiveUser(
+          'guest-' + Date.now(),
+          '',
+          'Invitado FIXIT',
+          'CLIENT',
+          'ACTIVE',
+          undefined,
+          undefined,
+          undefined,
+          true
+        );
+        currentAuthState = { user: fallbackGuest, loading: false, error: null };
+        notifyAuthListeners();
+      }
+    }
   }
-  notifyAuthListeners();
 });
 
 // ============================================================================
@@ -625,8 +659,24 @@ export const authService = {
     } catch (err) {
       console.warn('[FIXIT Auth] Error al cerrar sesión:', err);
     }
-    currentAuthState = { user: null, loading: false, error: null };
-    notifyAuthListeners();
+    // Re-inicializar sesión de invitado para que la aplicación nunca quede en un estado bloqueante
+    try {
+      await this.loginAnonymously();
+    } catch {
+      const fallbackGuest = buildActiveUser(
+        'guest-' + Date.now(),
+        '',
+        'Invitado FIXIT',
+        'CLIENT',
+        'ACTIVE',
+        undefined,
+        undefined,
+        undefined,
+        true
+      );
+      currentAuthState = { user: fallbackGuest, loading: false, error: null };
+      notifyAuthListeners();
+    }
   },
 
   // Permanent Account & Data Deletion (Derechos ARCO / Privacidad)

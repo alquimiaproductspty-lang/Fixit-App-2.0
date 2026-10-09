@@ -9,8 +9,6 @@ import { ServicePriceStep } from './components/ServicePriceStep';
 import { ProblemDetailStep } from './components/ProblemDetailStep';
 import { SummaryWhatsAppStep } from './components/SummaryWhatsAppStep';
 import { AdminDashboardView } from './components/AdminDashboardView';
-import { AuthLoginScreen } from './components/auth/AuthLoginScreen';
-import { AuthRegisterScreen } from './components/auth/AuthRegisterScreen';
 import { SplashScreen } from './components/SplashScreen';
 import { Footer } from './components/Footer';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
@@ -179,10 +177,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (authState.user && (currentRoute.step === 'login' || currentRoute.step === 'register')) {
-      navigate({ step: 'home' }, true);
+    // Asegurar que al cargar la aplicación se inicialice una sesión de invitado si no hay un usuario activo
+    if (!authState.loading && !authState.user) {
+      authService.loginAnonymously().catch((err) => {
+        console.warn('[FIXIT Auth] Inicio automático de invitado:', err);
+      });
     }
-  }, [authState.user, currentRoute.step, navigate]);
+  }, [authState.loading, authState.user]);
 
   const handleSelectCategory = (category: ServiceCategory) => {
     setSelectedCategory(category);
@@ -236,28 +237,6 @@ export default function App() {
   };
 
   const isSubStep = currentRoute.step !== 'home';
-
-  if (currentRoute.step === 'login') {
-    return (
-      <AuthLoginScreen
-        onSuccess={() => navigate({ step: 'home' }, true)}
-        onNavigateToRegister={() => navigate({ step: 'register' })}
-        onGoBack={() => goBack({ step: 'home' })}
-      />
-    );
-  }
-
-  if (currentRoute.step === 'register') {
-    return (
-      <AuthRegisterScreen
-        onSuccess={() => navigate({ step: 'home' }, true)}
-        onNavigateToLogin={() => navigate({ step: 'login' })}
-        onGoBack={() => goBack({ step: 'login' })}
-        onNavigateToTerms={() => navigate({ step: 'terms' })}
-        onNavigateToPrivacy={() => navigate({ step: 'privacy' })}
-      />
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#F6F4EF] text-[#1F2421] flex flex-col font-sans selection:bg-[#0B72D9]/15">
