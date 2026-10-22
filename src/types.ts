@@ -1,8 +1,11 @@
 export type ServiceCategory = 
+  | 'Diagnóstico'
+  | 'Climatización'
   | 'Plomería' 
   | 'Electricidad' 
   | 'Reparaciones del hogar'
   | 'Pintura residencial'
+  | 'Aire Acondicionado'
   | 'Mantenimiento de techos'
   // Pre-configured architecture for upcoming catalog categories:
   | 'Limpieza'
@@ -402,6 +405,14 @@ export interface Service {
   section?: string;
   section_description?: string;
   badge?: string;
+
+  // Propiedades de Anticipo y PVP cerrado
+  advance_percentage?: number; // e.g. 0.50 (50%)
+  advance_required?: boolean;  // true
+  advance_notes?: string;
+  anticipo_porcentaje?: number;
+  anticipo_requerido?: boolean;
+  anticipo_notas?: string;
 
   // Backwards compatibility aliases
   categoria: ServiceCategory;

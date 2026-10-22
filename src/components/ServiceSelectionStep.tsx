@@ -59,6 +59,7 @@ export const ServiceSelectionStep: React.FC<ServiceSelectionStepProps> = ({
     const norm = cat.toLowerCase();
     if (norm.includes('plomer')) return FIXIT_IMAGES.plumbing;
     if (norm.includes('electr')) return FIXIT_IMAGES.electricity;
+    if (norm.includes('clima') || norm.includes('aire') || norm === 'ac') return FIXIT_IMAGES.ac;
     if (norm.includes('pintur')) return FIXIT_IMAGES.painting;
     return FIXIT_IMAGES.heroHome;
   };

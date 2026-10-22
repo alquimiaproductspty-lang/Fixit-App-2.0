@@ -18,6 +18,11 @@ import {
   APP_BUILD_TIMESTAMP, 
   APP_RELEASE_NOTES 
 } from './src/config/version';
+import { 
+  FIXIT_SYSTEM_PROMPT, 
+  FIXIT_BANKING_DETAILS, 
+  FIXIT_OFFICIAL_PVP 
+} from './src/data/pricingKnowledgeBase';
 
 dotenv.config();
 
@@ -196,40 +201,66 @@ app.get('/api/version', (req, res) => {
   });
 });
 
+// Endpoint de base de conocimiento y reglas operativas de FIXIT
+app.get('/api/pricing-knowledge', (req, res) => {
+  res.json({
+    success: true,
+    systemPrompt: FIXIT_SYSTEM_PROMPT,
+    banking: FIXIT_BANKING_DETAILS,
+    pvp: FIXIT_OFFICIAL_PVP,
+    rules: {
+      advanceRequiredPercent: 50,
+      yappy: '6137-2394',
+      bancoGeneral: '04-72-98-545854-3 (Virginia Palomino Hoyte)',
+      diagnosticPrice: 25.00,
+      diagnosticDeductible: true,
+      warrantyDays: 30,
+    },
+  });
+});
+
 // Classification endpoint for photos
 app.post('/api/classify', async (req, res) => {
   try {
     const { imageBase64, mimeType = 'image/jpeg', userContext } = req.body;
 
     const catalogDescription = `
-CATÁLOGO CERRADO DE SERVICIOS FIXIT EN CIUDAD DE PANAMÁ (ÚNICOS PERMITIDOS):
-[PLOMERÍA]
-- PLO-001: Reparar fuga visible y accesible (tuberías vistas, llaves de paso con goteo, conectores de lavamanos o fregadero)
-- PLO-002: Humedad o fuga oculta (manchas en paredes, losas húmedas, fugas no visibles a simple vista)
-- PLO-003: Destapar lavamanos, ducha o fregadero (obstrucción de trampa/sifón o drenaje lento en lavamanos, regadera o fregadero)
-- PLO-004: Destapar inodoro (inodoro atascado o que no drena agua)
-- PLO-005: Drenaje recurrente o principal (problemas en tubería sanitaria principal de la casa o atasco general)
-- PLO-006: Cambiar grifo o llave estándar (reemplazo o instalación de mezclador, monomando o grifería)
-- PLO-007: Reparar inodoro (inodoro que bota agua continua dentro de la taza, sapito o válvula desgastada)
-- PLO-008: Instalar lavadora o conectar lavamanos/fregadero (acople de mangueras de agua y desagüe de artefactos)
-- PLO-009: Baja presión de agua (poco caudal en grifos o regaderas)
-- PLO-010: Problema de agua caliente (calentador de agua no enciende o no calienta)
-- PLO-011: Atención prioritaria por fuga o inundación (rotura severa con agua derramándose activamente)
+CATÁLOGO OFICIAL Y TARIFARIO DE PRECIOS FIXIT EN CIUDAD DE PANAMÁ:
 
-[ELECTRICIDAD]
-- ELE-001: Cambio de tomacorriente estándar (enchufe dañado, roto, flojo o que se desea renovar)
-- ELE-002: Cambio de interruptor estándar (apagador de luz o switch de pared dañado)
-- ELE-003: Instalación de lámpara o plafón en punto existente (montaje de luminaria o aplique en caja de techo)
-- ELE-004: Instalar ventilador de techo en punto existente (ensamblaje y montaje de ventilador)
-- ELE-005: Tomacorriente o interruptor sin energía (enchufe que dejó de funcionar sin chispas)
-- ELE-006: Breaker que se baja (pastilla termomagnética que se dispara en el tablero eléctrico)
-- ELE-007: Problema eléctrico en una habitación (luces parpadean o varios enchufes caídos en un área)
-- ELE-008: Atención prioritaria eléctrica (chispas activas, olor a quemado, humo o cables derretidos)
+[CLIMATIZACIÓN - AIRES ACONDICIONADOS SPLIT]
+- AC-001: Mantenimiento Preventivo (1 Unidad): $30.00
+- AC-002: Mantenimiento Combo (2 Unidades): $55.00
+- AC-003: Mantenimiento Combo (3 Unidades): $75.00
+- AC-004: Instalación Básica Residencial (incluye kit básico 3m): $70.00
+- AC-005: Instalación Básica (Edificio/Balcón): $85.00
+- AC-006: Instalación por Manga (PH) (Solo mano de obra): $135.00
+- AC-007: Instalación por Manga (PH) (Completa con soldadura de plata, nitrógeno y vacío): $160.00
+- AC-008: Punto eléctrico adicional para A/C: $35.00
 
-[AIRE ACONDICIONADO]
-- AC-001: Mantenimiento preventivo split residencial (limpieza profunda de evaporador, turbina, filtros y condensador exterior)
-- AC-002: Revisión técnica de goteo o enfriamiento (split residencial gotea agua hacia la pared, no enfría o congela tuberías)
-- AC-003: Instalación o reubicación de split (montaje de consola y condensador exterior en punto residencial)`;
+[PLOMERÍA RESIDENCIAL]
+- PLO-001: Reemplazo simple de Lavamanos/Grifería: $40.00
+- PLO-002: Reemplazo de Fregador con sellado hermético: $50.00
+- PLO-003: Reemplazo de Ducha Eléctrica (Básica sobre niple): $35.00
+- PLO-003B: Ducha Eléctrica + Punto eléctrico nuevo desde tablero: $90.00
+- PLO-004: Destapar inodoro o fluxómetro: $60.00
+- PLO-004B: Instalación compleja (Mueble nuevo o modificación de tubería PVC): $60.00
+- PLO-005: Conexión punto de agua Icemaker / Nevera: $48.00
+- PLO-006: Instalación de Lavadora: $40.00
+- PLO-007: Instalación Secadora (Gas/Eléctrica + ducto): $68.00
+- PLO-011: Diagnóstico de inspección técnica: $25.00 (100% deducible si aprueba reparación)
+
+[ELECTRICIDAD MENOR]
+- ELE-001: Paquete Eléctrico Menor (Visita + cambio de hasta 3 tomas/switches): $38.00
+- ELE-001B: Punto adicional (a partir del 4to en la misma visita): $10.00 c/u
+- ELE-002: Instalación Switch Inteligente / Dimmer: $38.00
+- ELE-003: Instalación de lámpara o plafón: $30.00
+- ELE-004: Instalación de abanico de techo: $40.00
+- ELE-008: Punto eléctrico adicional para A/C: $35.00
+
+REGLAS OPERATIVAS:
+- Anticipo obligatorio del 50% vía Yappy (6137-2394) o Banco General (04-72-98-545854-3, Virginia Palomino Hoyte) para agendar.
+- Diagnóstico técnico de $25.00 es 100% deducible si el cliente aprueba el trabajo.
+- Garantía FIXIT de 30 días en mano de obra.`;
 
     const promptText = `Eres el clasificador técnico de FIXIT, servicio de reparaciones residenciales en Ciudad de Panamá.
 Analiza la foto proporcionada por el usuario de forma estricta y profesional.

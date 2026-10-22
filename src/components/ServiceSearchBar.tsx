@@ -13,7 +13,9 @@ import {
   Clock, 
   ShieldCheck, 
   MessageCircle,
-  Sparkles
+  Sparkles,
+  Wind,
+  ClipboardCheck
 } from 'lucide-react';
 import { generateDirectWhatsAppLink, openWhatsAppSafely } from '../lib/whatsapp';
 
@@ -205,6 +207,14 @@ export const ServiceSearchBar: React.FC<ServiceSearchBarProps> = ({
 
   const getCategoryTheme = (category: ServiceCategory) => {
     switch (category) {
+      case 'Diagnóstico':
+        return {
+          icon: <ClipboardCheck className="w-3.5 h-3.5" />,
+          color: 'text-[#0B72D9]',
+          bg: 'bg-[#0B72D9]/10',
+          border: 'border-[#0B72D9]/30',
+          label: 'Diagnóstico',
+        };
       case 'Plomería':
         return {
           icon: <Wrench className="w-3.5 h-3.5" />,
@@ -221,7 +231,17 @@ export const ServiceSearchBar: React.FC<ServiceSearchBarProps> = ({
           border: 'border-[#B98A43]/30',
           label: 'Electricidad',
         };
+      case 'Climatización':
+      case 'Aire Acondicionado':
+        return {
+          icon: <Wind className="w-3.5 h-3.5" />,
+          color: 'text-[#0988F5]',
+          bg: 'bg-[#0988F5]/10',
+          border: 'border-[#0988F5]/30',
+          label: 'Climatización',
+        };
       case 'Pintura':
+      case 'Pintura residencial':
         return {
           icon: <Paintbrush className="w-3.5 h-3.5" />,
           color: 'text-[#B98A43]',

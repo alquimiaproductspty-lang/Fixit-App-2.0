@@ -1,497 +1,180 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { CustomerData, Service, ServiceCategory, PaintingCalculation, ACInstallationDetails } from './types';
-import { getServiceById, FIXIT_CATALOG } from './data/catalog';
+import React, { useState, useEffect } from 'react';
 import { authService, AuthState } from './lib/firebase';
-import { Navbar } from './components/Navbar';
-import { CategorySelectionStep } from './components/CategorySelectionStep';
-import { ServiceSelectionStep } from './components/ServiceSelectionStep';
-import { ServicePriceStep } from './components/ServicePriceStep';
-import { ProblemDetailStep } from './components/ProblemDetailStep';
-import { SummaryWhatsAppStep } from './components/SummaryWhatsAppStep';
+import { AuthLoginScreen } from './components/auth/AuthLoginScreen';
 import { AdminDashboardView } from './components/AdminDashboardView';
-import { SplashScreen } from './components/SplashScreen';
-import { Footer } from './components/Footer';
-import { PWAInstallBanner } from './components/PWAInstallBanner';
+import { FixitLogo } from './components/FixitLogo';
+import { Shield, ShieldCheck, LogOut, AlertCircle, Loader2, Lock } from 'lucide-react';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 import { usePWAUpdate } from './hooks/usePWAUpdate';
-import { useFixitRouter, getParentRoute } from './hooks/useFixitRouter';
-import { FIXIT_WHATSAPP_NUMBER, openWhatsAppSafely, generateDirectWhatsAppLink } from './lib/whatsapp';
-import { RotateCcw, ArrowRight } from 'lucide-react';
-import { AnimatePresence } from 'motion/react';
 
-// 1. NUEVO: Importamos FIXIT Pro, Política de Privacidad y Términos de Servicio
-import FixitPro from './components/FixitPro'; 
-import { PinturaService } from './components/PinturaService';
-import PrivacyPolicy from './pages/PrivacyPolicy';
-import TermsOfService from './pages/TermsOfService';
-
-const STORAGE_KEY_FIXIT_DRAFT = 'fixit_customer_draft_v2';
-
+/**
+ * FIXIT App - Internal Operations Console & CRM Architecture
+ * Exclusively for staff and administrative control (admin.tudominio.com).
+ * Public customer quotation flows and install prompts have been decoupled.
+ */
 export default function App() {
-  const { currentRoute, navigate, goBack } = useFixitRouter();
   const [authState, setAuthState] = useState<AuthState>(() => authService.getAuthState());
   const pwaUpdate = usePWAUpdate();
 
-  // App Initial Launch Animated Splash Screen state:
-  const [isInitialSplashActive, setIsInitialSplashActive] = useState(() => {
-    try {
-      return !sessionStorage.getItem('fixit_splash_shown');
-    } catch {
-      return true;
-    }
-  });
-
-  const handleSplashFinish = () => {
-    try {
-      sessionStorage.setItem('fixit_splash_shown', 'true');
-    } catch {}
-    setIsInitialSplashActive(false);
-  };
-
-  // Core Request State
-  const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>('Plomería');
-  const [selectedService, setSelectedService] = useState<Service | null>(null);
-  const [problemDescription, setProblemDescription] = useState<string>('');
-  const [customerName, setCustomerName] = useState<string>('');
-  const [customerPhone, setCustomerPhone] = useState<string>('');
-  const [customerAddress, setCustomerAddress] = useState<string>('');
-  const [paintingCalculation, setPaintingCalculation] = useState<PaintingCalculation | null>(null);
-  const [acDetails, setAcDetails] = useState<ACInstallationDetails | null>(null);
-  const [adjustedPrice, setAdjustedPrice] = useState<number | null>(null);
-
-  const activeService = useMemo(() => {
-    if (
-      currentRoute.step === 'service' ||
-      currentRoute.step === 'detail' ||
-      currentRoute.step === 'summary'
-    ) {
-      if (selectedService && selectedService.id === currentRoute.serviceId) {
-        return selectedService;
-      }
-      return getServiceById(currentRoute.serviceId) || selectedService;
-    }
-    return selectedService;
-  }, [currentRoute, selectedService]);
-
-  const activeCategory = useMemo(() => {
-    if (currentRoute.step === 'category') {
-      const normalizedCat = currentRoute.categoryId.replace(/-/g, ' ');
-      const match = FIXIT_CATALOG.find(
-        (s) => s.category.toLowerCase() === normalizedCat.toLowerCase()
-      );
-      if (match) return match.category;
-    }
-    return activeService ? activeService.category : selectedCategory;
-  }, [currentRoute, activeService, selectedCategory]);
-
-  useEffect(() => {
-    if (activeService && (!selectedService || selectedService.id !== activeService.id)) {
-      setSelectedService(activeService);
-      setSelectedCategory(activeService.category);
-    } else if (currentRoute.step === 'category' && activeCategory !== selectedCategory) {
-      setSelectedCategory(activeCategory);
-    }
-  }, [activeService, activeCategory, currentRoute.step, selectedService, selectedCategory]);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_FIXIT_DRAFT);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.serviceId) {
-          const s = getServiceById(parsed.serviceId);
-          if (s) {
-            setSelectedService(s);
-            setSelectedCategory(s.category);
-          }
-        }
-        if (parsed.selectedCategory) setSelectedCategory(parsed.selectedCategory);
-        if (parsed.problemDescription) setProblemDescription(parsed.problemDescription);
-        if (parsed.customerName) setCustomerName(parsed.customerName);
-        if (parsed.customerPhone) setCustomerPhone(parsed.customerPhone);
-        if (parsed.customerAddress) setCustomerAddress(parsed.customerAddress);
-        if (parsed.paintingCalculation) setPaintingCalculation(parsed.paintingCalculation);
-        if (parsed.acDetails) setAcDetails(parsed.acDetails);
-        if (typeof parsed.adjustedPrice === 'number') setAdjustedPrice(parsed.adjustedPrice);
-      }
-    } catch (e) {
-      console.warn('Error cargando borrador local:', e);
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      if (
-        !activeService &&
-        !problemDescription &&
-        !customerName &&
-        !customerPhone &&
-        !customerAddress &&
-        !paintingCalculation &&
-        !acDetails &&
-        !adjustedPrice
-      ) {
-        localStorage.removeItem(STORAGE_KEY_FIXIT_DRAFT);
-        return;
-      }
-
-      const draft = {
-        serviceId: activeService?.id,
-        selectedCategory: activeCategory,
-        problemDescription,
-        customerName,
-        customerPhone,
-        customerAddress,
-        paintingCalculation,
-        acDetails,
-        adjustedPrice,
-      };
-      localStorage.setItem(STORAGE_KEY_FIXIT_DRAFT, JSON.stringify(draft));
-    } catch (e) {
-      console.warn('Error guardando borrador:', e);
-    }
-  }, [
-    activeService,
-    activeCategory,
-    problemDescription,
-    customerName,
-    customerPhone,
-    customerAddress,
-    paintingCalculation,
-    acDetails,
-    adjustedPrice,
-  ]);
-
-  const userPrefilledRef = useRef(false);
-
+  // Escuchar el estado de autenticación en tiempo real
   useEffect(() => {
     const unsub = authService.subscribe((state) => {
       setAuthState(state);
-      if (state.user && !userPrefilledRef.current) {
-        userPrefilledRef.current = true;
-        setCustomerName((prev) => prev || state.user?.nombre || '');
-        setCustomerPhone((prev) => prev || state.user?.telefono || '');
-      }
     });
     return () => unsub();
   }, []);
 
+  // Eliminar sesiones anónimas heredadas del flujo público
   useEffect(() => {
-    // Asegurar que al cargar la aplicación se inicialice una sesión de invitado si no hay un usuario activo
-    if (!authState.loading && !authState.user) {
-      authService.loginAnonymously().catch((err) => {
-        console.warn('[FIXIT Auth] Inicio automático de invitado:', err);
+    if (!authState.loading && authState.user?.isAnonymous) {
+      console.info('[FIXIT CRM] Desconectando sesión anónima en subdominio administrativo...');
+      authService.signOut().catch((err) => {
+        console.warn('[FIXIT CRM] Error al cerrar sesión anónima:', err);
       });
     }
   }, [authState.loading, authState.user]);
 
-  const handleSelectCategory = (category: ServiceCategory) => {
-    setSelectedCategory(category);
-    const categorySlug = category.toLowerCase().replace(/\s+/g, '-');
-    navigate({ step: 'category', categoryId: categorySlug });
-  };
+  // 1. Estado de Carga Inicial
+  if (authState.loading) {
+    return (
+      <div className="min-h-screen bg-[#F6F4EF] flex flex-col items-center justify-center p-6 text-center space-y-4 font-sans select-none">
+        <div className="w-14 h-14 rounded-2xl bg-[#082D60] text-white flex items-center justify-center shadow-md animate-pulse">
+          <Shield className="w-7 h-7 text-white" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="font-serif font-bold text-xl text-[#082D60]">
+            FIXIT Operations CRM
+          </h2>
+          <p className="text-xs text-[#756A5D] flex items-center justify-center gap-1.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0B72D9]" />
+            <span>Verificando credenciales de acceso administrativo...</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-  const handleSelectService = (service: Service) => {
-    setSelectedService(service);
-    setSelectedCategory(service.category);
-    navigate({ step: 'service', serviceId: service.id });
-  };
+  // 2. Si el usuario NO está autenticado (o era anónimo), obligar a Iniciar Sesión en la raíz
+  const isAuthenticatedStaff = Boolean(authState.user && !authState.user.isAnonymous);
 
-  const handleContinueFromPrice = (details?: { 
-    paintingCalculation?: PaintingCalculation; 
-    acDetails?: ACInstallationDetails;
-    adjustedPrice?: number;
-  }) => {
-    if (!activeService) return;
-    if (details?.paintingCalculation) setPaintingCalculation(details.paintingCalculation);
-    if (details?.acDetails) setAcDetails(details.acDetails);
-    if (details?.adjustedPrice !== undefined) setAdjustedPrice(details.adjustedPrice);
+  if (!isAuthenticatedStaff) {
+    return (
+      <div className="min-h-screen bg-[#F6F4EF]">
+        <AuthLoginScreen
+          hideGuest={true}
+          showBack={false}
+          title="Consola Operativa FIXIT"
+          subtitle="Acceso exclusivo para el equipo de administración y operaciones (admin.tudominio.com)."
+        />
+        <PWAUpdatePrompt updateState={pwaUpdate} />
+      </div>
+    );
+  }
 
-    navigate({ step: 'detail', serviceId: activeService.id });
-  };
+  // 3. Verificación de Rol de Administrador
+  const currentUser = authState.user!;
+  const isAdmin = Boolean(currentUser.isAdmin || currentUser.role === 'ADMIN');
 
-  const handleContinueFromDetail = () => {
-    if (!activeService) return;
-    navigate({ step: 'summary', serviceId: activeService.id });
-  };
+  // 4. Si el usuario autenticado NO posee rol de ADMIN, restringir acceso
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-[#F6F4EF] flex flex-col items-center justify-center p-6 font-sans">
+        <div className="max-w-md w-full bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-6 sm:p-8 shadow-md text-center space-y-5">
+          <div className="w-14 h-14 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+            <Lock className="w-7 h-7" />
+          </div>
 
-  const handleOpenDirectWhatsApp = () => {
-    const url = generateDirectWhatsAppLink('Hola FIXIT. Quisiera consultar sobre un servicio para mi hogar.');
-    openWhatsAppSafely(url);
-  };
+          <div className="space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 px-2.5 py-0.5 rounded-full border border-rose-200">
+              Acceso Restringido
+            </span>
+            <h1 className="font-serif font-bold text-xl sm:text-2xl text-[#1F2421]">
+              Permisos Insuficientes
+            </h1>
+            <p className="text-xs text-[#756A5D] leading-relaxed">
+              La cuenta <strong className="text-[#1F2421]">{currentUser.email || currentUser.displayName}</strong> está registrada con rol de <strong className="text-[#082D60]">{currentUser.role || 'Cliente'}</strong>.
+            </p>
+            <p className="text-xs text-[#756A5D] leading-relaxed">
+              Este subdominio es de uso exclusivo para Administradores de FIXIT. Si crees que se trata de un error, solicita la elevación de permisos en Firebase.
+            </p>
+          </div>
 
-  const handleResetDraft = () => {
-    try {
-      localStorage.removeItem(STORAGE_KEY_FIXIT_DRAFT);
-    } catch {}
-    userPrefilledRef.current = false;
-    setSelectedService(null);
-    setProblemDescription('');
-    setCustomerName('');
-    setCustomerPhone('');
-    setCustomerAddress('');
-    setPaintingCalculation(null);
-    setAcDetails(null);
-    setAdjustedPrice(null);
-    navigate({ step: 'home' });
-  };
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => authService.signOut()}
+              className="w-full py-3.5 px-4 rounded-2xl bg-[#082D60] hover:bg-[#07244D] text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-xs active:scale-[0.99]"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Cerrar Sesión e Iniciar con Cuenta Administradora</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  const isSubStep = currentRoute.step !== 'home';
-
+  // 5. Usuario Autenticado con Rol de ADMIN: Renderizar CRM / AdminDashboardView
   return (
     <div className="min-h-screen bg-[#F6F4EF] text-[#1F2421] flex flex-col font-sans selection:bg-[#0B72D9]/15">
-      <AnimatePresence>
-        {isInitialSplashActive && (
-          <SplashScreen onFinish={handleSplashFinish} />
-        )}
-      </AnimatePresence>
-
-      <PWAInstallBanner />
-
-      <Navbar
-        currentView={currentRoute.step}
-        canGoBack={isSubStep}
-        onGoBack={() => {
-          const parent = getParentRoute(currentRoute, activeCategory);
-          goBack(parent);
-        }}
-        onNavigate={(view) => {
-          if (view === 'login') {
-            navigate({ step: 'login' });
-          } else if (view === 'register') {
-            navigate({ step: 'register' });
-          } else if (view === 'admin') {
-            navigate({ step: 'admin' });
-          } else if (view === 'pro') {
-            // 2. NUEVO: Agregamos la ruta en la navegación principal
-            navigate({ step: 'pro' });
-          } else if (view === 'pintura') {
-            navigate({ step: 'pintura' });
-          } else if (view === 'privacy') {
-            navigate({ step: 'privacy' });
-          } else if (view === 'terms') {
-            navigate({ step: 'terms' });
-          } else {
-            navigate({ step: 'home' });
-          }
-        }}
-        authState={authState}
-        hasUpdate={pwaUpdate.hasUpdate}
-      />
-
-      <main className="flex-1 pb-16">
-        {currentRoute.step === 'home' && activeService && (
-          <div className="max-w-xl mx-auto px-4 pt-3">
-            <div className="bg-[#FFFEFA] border border-[#0B72D9]/30 rounded-2xl p-3 shadow-2xs flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#0B72D9] animate-pulse shrink-0" />
-                <p className="text-xs text-[#1F2421] truncate">
-                  Solicitud en curso: <strong>{activeService.service_name}</strong>
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => navigate({ step: 'service', serviceId: activeService.id })}
-                  className="text-xs font-bold text-[#0B72D9] hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <span>Continuar</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={handleResetDraft}
-                  className="p-1 text-[#756A5D] hover:text-red-600 transition-colors cursor-pointer"
-                  title="Descartar borrador"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </button>
-              </div>
+      {/* Barra Superior Exclusiva para Equipo Interno */}
+      <header className="sticky top-0 z-40 bg-[#FFFEFA]/95 backdrop-blur-md border-b border-[#DED4C5] px-4 sm:px-6 py-2.5">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          {/* Brand & Subdomain Badge */}
+          <div className="flex items-center gap-3">
+            <FixitLogo variant="compact" size={28} />
+            <div className="hidden sm:block border-l border-[#DED4C5] pl-3">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#082D60] block">
+                CRM & Control Operativo
+              </span>
+              <span className="text-[11px] text-[#756A5D] font-mono">
+                admin.fixitpanama.com
+              </span>
             </div>
           </div>
-        )}
 
-        <div className="w-full">
-          {currentRoute.step === 'home' && (
-            <div key="step-home" className="w-full">
-              <CategorySelectionStep
-                onSelectCategory={handleSelectCategory}
-                onSelectService={handleSelectService}
-                onOpenWhatsAppDirect={handleOpenDirectWhatsApp}
-              />
+          {/* Connected Admin Staff Identity & Logout */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden md:flex flex-col text-right">
+              <span className="text-xs font-bold text-[#1F2421]">
+                {currentUser.displayName || currentUser.nombre || 'Administrador'}
+              </span>
+              <span className="text-[10px] text-[#756A5D]">
+                {currentUser.email}
+              </span>
             </div>
-          )}
 
-          {currentRoute.step === 'category' && (
-            <div key={`step-category-${activeCategory}`} className="w-full">
-              <ServiceSelectionStep
-                category={activeCategory}
-                onSelectService={handleSelectService}
-                onBack={() => navigate({ step: 'home' })}
-                onConfirmPaintingCalculation={(calc, service) => {
-                  setSelectedService(service);
-                  setSelectedCategory(service.category);
-                  setPaintingCalculation(calc);
-                  setAdjustedPrice(calc.total);
-                  navigate({ step: 'detail', serviceId: service.id });
-                }}
-              />
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#53653D]/10 border border-[#53653D]/30 text-[#53653D] text-[11px] font-bold">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>ADMIN</span>
             </div>
-          )}
 
-          {currentRoute.step === 'service' && activeService && (
-            <div key={`step-service-${activeService.id}`} className="w-full">
-              <ServicePriceStep
-                service={activeService}
-                onContinue={handleContinueFromPrice}
-                onBack={() => goBack({ step: 'category', categoryId: activeCategory.toLowerCase().replace(/\s+/g, '-') })}
-              />
-            </div>
-          )}
-
-          {currentRoute.step === 'detail' && activeService && (
-            <div key={`step-detail-${activeService.id}`} className="w-full">
-              <ProblemDetailStep
-                service={activeService}
-                description={problemDescription}
-                onChangeDescription={setProblemDescription}
-                onContinue={handleContinueFromDetail}
-                onBack={() => goBack({ step: 'service', serviceId: activeService.id })}
-              />
-            </div>
-          )}
-
-          {currentRoute.step === 'summary' && activeService && (
-            <div key={`step-summary-${activeService.id}`} className="w-full">
-              <SummaryWhatsAppStep
-                service={activeService}
-                description={problemDescription}
-                customerName={customerName}
-                onChangeCustomerName={setCustomerName}
-                customerPhone={customerPhone}
-                onChangeCustomerPhone={setCustomerPhone}
-                customerAddress={customerAddress}
-                onChangeCustomerAddress={setCustomerAddress}
-                paintingCalculation={paintingCalculation}
-                acDetails={acDetails}
-                adjustedPrice={adjustedPrice || undefined}
-                onBack={() => goBack({ step: 'detail', serviceId: activeService.id })}
-                onReset={handleResetDraft}
-              />
-            </div>
-          )}
-
-          {currentRoute.step === 'admin' && (
-            <div key="step-admin" className="w-full">
-              <AdminDashboardView
-                authState={authState}
-                onGoHome={() => navigate({ step: 'home' })}
-              />
-            </div>
-          )}
-
-          {/* 3. NUEVO: Agregamos la visualización del componente FIXIT Pro */}
-          {currentRoute.step === 'pro' && (
-            <div key="step-pro" className="w-full">
-              <FixitPro />
-            </div>
-          )}
-
-          {/* Cotizador Interactivo de Pintura */}
-          {currentRoute.step === 'pintura' && (
-            <div key="step-pintura" className="w-full">
-              <PinturaService
-                onBack={() => navigate({ step: 'home' })}
-                onSolicitarServicio={(calc: any) => {
-                  const targetService = getServiceById('PIN-001') || FIXIT_CATALOG.find((s) => s.category.toLowerCase().includes('pintur'))!;
-                  setSelectedService(targetService);
-                  setSelectedCategory(targetService.category);
-                  const paintingCalc: PaintingCalculation = {
-                    serviceId: targetService.id,
-                    serviceName: targetService.service_name,
-                    areaM2: calc.m2,
-                    pricePerM2: calc.rateManoDeObra,
-                    subtotal: calc.costoManoDeObra,
-                    hasHeightSurcharge: false,
-                    heightSurchargeAmount: 0,
-                    includePaintMaterials: calc.modality === 'mano_obra_materiales',
-                    paintMaterialsAmount: calc.costoMateriales,
-                    hasPatchingRepair: false,
-                    patchingRepairAmount: 0,
-                    minimumServiceCharge: 0,
-                    minimumChargeApplied: false,
-                    total: calc.granTotal,
-                    roomDetails: `${calc.areaName} - ${calc.m2} m² (${calc.modalityName}${calc.nombreCalidad ? ` • ${calc.nombreCalidad}` : ''})`,
-                    areaType: calc.areaType,
-                    areaName: calc.areaName,
-                    modality: calc.modality,
-                    modalityName: calc.modalityName,
-                    galones: calc.galones,
-                    costoMateriales: calc.costoMateriales,
-                    costoManoDeObra: calc.costoManoDeObra,
-                    rateManoDeObra: calc.rateManoDeObra,
-                    precioGalon: calc.precioGalon,
-                    calidadPintura: calc.calidadPintura,
-                    nombreCalidad: calc.nombreCalidad,
-                    costoPintura: calc.costoPintura,
-                    costoInsumosFijo: calc.costoInsumosFijo,
-                  };
-                  setPaintingCalculation(paintingCalc);
-                  setAdjustedPrice(calc.granTotal);
-                  navigate({ step: 'detail', serviceId: targetService.id });
-                }}
-              />
-            </div>
-          )}
-
-          {/* 4. NUEVO: Agregamos la visualización de la Política de Privacidad */}
-          {currentRoute.step === 'privacy' && (
-            <div key="step-privacy" className="w-full">
-              <PrivacyPolicy
-                onBack={() => goBack({ step: 'home' })}
-                onGoHome={() => navigate({ step: 'home' })}
-              />
-            </div>
-          )}
-
-          {/* 5. NUEVO: Agregamos la visualización de Términos de Servicio */}
-          {currentRoute.step === 'terms' && (
-            <div key="step-terms" className="w-full">
-              <TermsOfService
-                onBack={() => goBack({ step: 'home' })}
-                onGoHome={() => navigate({ step: 'home' })}
-              />
-            </div>
-          )}
-
-          {(currentRoute.step === 'service' || currentRoute.step === 'detail' || currentRoute.step === 'summary') && !activeService && (
-            <div key="step-missing-service" className="w-full">
-              <div className="w-full max-w-xl mx-auto px-4 py-10 text-center space-y-4">
-                <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-6 sm:p-8 shadow-2xs space-y-3">
-                  <h3 className="font-serif font-bold text-lg text-[#1F2421]">
-                    No se encontró el servicio seleccionado
-                  </h3>
-                  <p className="text-xs text-[#756A5D] leading-relaxed max-w-sm mx-auto">
-                    Selecciona una categoría de nuestro catálogo para iniciar tu solicitud con precios estándar transparentes.
-                  </p>
-                  <button
-                    onClick={() => navigate({ step: 'home' })}
-                    className="inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-[#0B72D9] text-white font-semibold text-xs shadow-xs hover:bg-[#085ab0] transition-colors active:scale-95 cursor-pointer mt-2"
-                  >
-                    Ver catálogo FIXIT
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+            <button
+              type="button"
+              onClick={() => authService.signOut()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#DED4C5] hover:bg-[#DED4C5]/30 text-xs font-semibold text-[#756A5D] hover:text-red-700 transition-colors cursor-pointer ml-1"
+              title="Cerrar sesión de la consola"
+              id="btn-crm-logout"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Cerrar Sesión</span>
+            </button>
+          </div>
         </div>
+      </header>
+
+      {/* Main Internal Console Dashboard */}
+      <main className="flex-1 pb-12">
+        <AdminDashboardView
+          authState={authState}
+          onGoHome={() => {
+            // En CRM interno, 'onGoHome' recarga o mantiene la vista en el panel
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+        />
       </main>
 
       <PWAUpdatePrompt updateState={pwaUpdate} />
-      <Footer
-        version={pwaUpdate.currentVersion}
-        hasUpdate={pwaUpdate.hasUpdate}
-        onNavigatePrivacy={() => navigate({ step: 'privacy' })}
-        onNavigateTerms={() => navigate({ step: 'terms' })}
-      />
     </div>
   );
-} 
+}

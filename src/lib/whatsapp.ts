@@ -110,6 +110,9 @@ export function generateFixitWhatsAppMessage(params: FixitWhatsAppParams): strin
     msg += `💵 *Precio estimado:* $${price.toFixed(2)}\n\n`;
   }
 
+  const anticipo = price * 0.5;
+  msg += `💳 *Anticipo requerido (50%):* $${anticipo.toFixed(2)}\n\n`;
+
   const desc = problemDescription?.trim() || 'Sin descripción adicional.';
   msg += `📝 *Descripción del problema:*\n${desc}\n\n`;
 
@@ -124,7 +127,8 @@ export function generateFixitWhatsAppMessage(params: FixitWhatsAppParams): strin
 
   msg += `👤 *Cliente:* ${customerName.trim() || 'Por definir'}\n`;
   msg += `📞 *Teléfono:* ${customerPhone.trim() || 'Por definir'}\n\n`;
-  msg += `Quedo atento a la confirmación de fecha y asignación de técnico.`;
+  msg += `Para confirmar su cita técnica, requerimos el abono del 50% ($${anticipo.toFixed(2)}) vía Yappy al 6137-2394 o Banco General a nombre de Virginia Palomino Hoyte (04-72-98-545854-3). Su servicio cuenta con Garantía FIXIT de 30 días.\n\n`;
+  msg += `Hola FIXIT, confirmo mi solicitud y adjunto comprobante de anticipo para agendar la visita técnica.`;
 
   return msg;
 }

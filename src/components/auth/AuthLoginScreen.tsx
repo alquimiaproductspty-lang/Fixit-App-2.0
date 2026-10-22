@@ -7,12 +7,20 @@ import { mapAuthErrorToFriendlyMessage } from '../../lib/authErrors';
 interface AuthLoginScreenProps {
   onSuccess?: () => void;
   onNavigateToRegister?: () => void;
-  onGoBack: () => void;
+  onGoBack?: () => void;
+  hideGuest?: boolean;
+  showBack?: boolean;
+  title?: string;
+  subtitle?: string;
 }
 
 export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
   onSuccess,
   onGoBack,
+  hideGuest = false,
+  showBack = true,
+  title = 'Bienvenido a FIXIT',
+  subtitle = 'Inicia sesión con tu cuenta de administrador u operador para acceder al panel.',
 }) => {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isGuestLoading, setIsGuestLoading] = useState(false);
@@ -85,17 +93,24 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
     <div className="min-h-screen bg-[#F6F4EF] flex flex-col justify-between py-6 px-4 sm:px-6">
       {/* Top Bar with Go Back */}
       <header className="max-w-md w-full mx-auto flex items-center justify-between">
-        <button
-          type="button"
-          onClick={onGoBack}
-          disabled={isBusy}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFFEFA] border border-[#DED4C5] text-xs font-semibold text-[#1F2421] hover:bg-[#DED4C5]/30 transition-colors shadow-2xs active:scale-95 cursor-pointer disabled:opacity-50"
-          id="btn-login-back"
-          aria-label="Volver atrás"
-        >
-          <ArrowLeft className="w-4 h-4 text-[#756A5D]" />
-          <span>Volver</span>
-        </button>
+        {showBack && onGoBack ? (
+          <button
+            type="button"
+            onClick={onGoBack}
+            disabled={isBusy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFFEFA] border border-[#DED4C5] text-xs font-semibold text-[#1F2421] hover:bg-[#DED4C5]/30 transition-colors shadow-2xs active:scale-95 cursor-pointer disabled:opacity-50"
+            id="btn-login-back"
+            aria-label="Volver atrás"
+          >
+            <ArrowLeft className="w-4 h-4 text-[#756A5D]" />
+            <span>Volver</span>
+          </button>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs font-bold text-[#082D60]">
+            <ShieldCheck className="w-4 h-4 text-[#0B72D9]" />
+            <span>Consola de Operaciones</span>
+          </div>
+        )}
 
         <span className="text-[11px] font-medium text-[#756A5D]">
           Acceso seguro FIXIT
@@ -111,13 +126,13 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
               <FixitLogo variant="horizontal" size={46} />
             </div>
             <p className="text-xs font-medium text-[#756A5D]">
-              Soluciones para tu hogar
+              Panel de Administración y Control
             </p>
             <h1 className="text-xl sm:text-2xl font-serif font-bold text-[#082D60] pt-1">
-              Bienvenido a FIXIT
+              {title}
             </h1>
             <p className="text-xs text-[#756A5D] max-w-xs mx-auto leading-relaxed">
-              Inicia sesión o regístrate en 1 solo clic. Rápido, seguro y sin contraseñas que recordar.
+              {subtitle}
             </p>
           </div>
 
@@ -171,29 +186,33 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
               )}
             </button>
 
-            {/* Guest / Explore Without Account Button */}
-            <button
-              type="button"
-              onClick={handleGuestSignIn}
-              disabled={isBusy}
-              className="w-full py-3 px-4 rounded-2xl bg-[#F6F4EF] hover:bg-[#EFECE4] active:scale-[0.99] text-[#756A5D] hover:text-[#082D60] font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer border border-[#DED4C5]/80 disabled:opacity-50"
-              id="btn-guest-login"
-            >
-              {isGuestLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-[#756A5D]" />
-                  <span>Iniciando como invitado...</span>
-                </>
-              ) : (
-                <>
-                  <User className="w-4 h-4 text-[#756A5D]" />
-                  <span>Continuar como Invitado</span>
-                </>
-              )}
-            </button>
-            <p className="text-[11px] text-[#756A5D]/80">
-              Explora servicios y cotiza de inmediato sin necesidad de registro
-            </p>
+            {/* Guest / Explore Without Account Button (Oculto en entorno CRM interno) */}
+            {!hideGuest && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleGuestSignIn}
+                  disabled={isBusy}
+                  className="w-full py-3 px-4 rounded-2xl bg-[#F6F4EF] hover:bg-[#EFECE4] active:scale-[0.99] text-[#756A5D] hover:text-[#082D60] font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer border border-[#DED4C5]/80 disabled:opacity-50"
+                  id="btn-guest-login"
+                >
+                  {isGuestLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-[#756A5D]" />
+                      <span>Iniciando como invitado...</span>
+                    </>
+                  ) : (
+                    <>
+                      <User className="w-4 h-4 text-[#756A5D]" />
+                      <span>Continuar como Invitado</span>
+                    </>
+                  )}
+                </button>
+                <p className="text-[11px] text-[#756A5D]/80">
+                  Explora servicios y cotiza de inmediato sin necesidad de registro
+                </p>
+              </>
+            )}
           </div>
 
           {/* Benefits & Trust Points */}

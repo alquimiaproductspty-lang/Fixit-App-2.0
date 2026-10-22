@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Service, ServiceRequest, PaintingCalculation, ACInstallationDetails } from '../types';
 import { getFixitWhatsAppUrl, FixitWhatsAppParams, openWhatsAppSafely } from '../lib/whatsapp';
 import { registerOrderOnServer } from '../lib/api';
-import { authService } from '../lib/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, authService } from '../lib/firebase';
 import {
   ArrowLeft,
   MessageCircle,
@@ -18,6 +19,8 @@ import {
   Wind,
   Info,
   X,
+  CreditCard,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface LocationSuggestion {
@@ -176,26 +179,45 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
     detectLocation(false);
   }, [detectLocation]);
 
+  // Validación estricta del formulario: Nombre, Teléfono y Dirección
+  const isFormValid = Boolean(
+    customerName && customerName.trim().length > 0 &&
+    customerPhone && customerPhone.trim().length > 0 &&
+    customerAddress && customerAddress.trim().length > 0
+  );
+
   // Upload photos to durable server storage and register order
   const handleConfirm = async (e?: React.FormEvent) => {
     if (e && typeof e.preventDefault === 'function') {
       e.preventDefault();
     }
 
-    if (!customerName.trim()) {
-      setErrorMessage('Por favor ingresa tu nombre completo.');
-      return;
-    }
-    if (!customerPhone.trim() || customerPhone.replace(/\D/g, '').length < 7) {
-      setErrorMessage('Por favor ingresa un número de teléfono válido.');
+    if (!isFormValid) {
+      setErrorMessage('Por favor completa todos los campos obligatorios: Nombre, Teléfono y Dirección.');
       return;
     }
 
     setErrorMessage(null);
     setIsSubmitting(true);
-    setSubmitStatusText('Registrando pedido en sistema FIXIT...');
+    setSubmitStatusText('Guardando solicitud y preparando WhatsApp...');
 
-    // 1. Register real order in the backend database under current guest UID
+    // A) Captura silenciosa de Lead en Firestore (Colección `leads`)
+    // Se ejecuta en try/catch para que cualquier fallo de red o permisos no bloquee el envío a WhatsApp
+    try {
+      await addDoc(collection(db, 'leads'), {
+        nombre: customerName.trim(),
+        telefono: customerPhone.trim(),
+        direccion: customerAddress.trim(),
+        servicio_cotizado: service.service_name || service.nombre || 'Servicio FIXIT',
+        precio: effectivePrice,
+        fecha: serverTimestamp(),
+      });
+      console.log('[FIXIT Leads] Lead registrado exitosamente en Firestore');
+    } catch (leadError) {
+      console.warn('[FIXIT Leads] Error al guardar lead en Firestore (procediendo sin bloquear al cliente):', leadError);
+    }
+
+    // Registro secundario en backend para trazabilidad de pedidos
     let createdOrder: ServiceRequest | null = null;
     try {
       const currentGuest = authService.getCurrentUser();
@@ -208,7 +230,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
         },
         creado_por_uid: currentGuest?.uid || 'usr_guest',
         servicio_probable: service,
-        direccion: customerAddress.trim() || 'Ciudad de Panamá',
+        direccion: customerAddress.trim(),
         referencia: '',
         tipo_propiedad: 'Apartamento',
         horario_preferido: 'Hoy',
@@ -229,7 +251,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
       });
       setConfirmedOrder(createdOrder);
     } catch (err) {
-      console.warn('Error al persistir orden en servidor:', err);
+      console.warn('Aviso al persistir orden en servidor:', err);
     }
 
     const orderTrackingId = createdOrder?.numero_pedido || createdOrder?.codigo_seguimiento || '';
@@ -263,10 +285,12 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
       mensaje += `📍 *Dirección:* ${customerAddress.trim()}\n`;
     }
 
+    const anticipo = effectivePrice * 0.5;
     mensaje += `👤 *Cliente:* ${customerName.trim()}\n`;
     mensaje += `📞 *Teléfono:* ${customerPhone.trim()}\n\n`;
     mensaje += `💵 *Precio total:* $${effectivePrice.toFixed(2)}${isEvaluationMode ? ' (Evaluación técnica)' : ''}\n\n`;
-    mensaje += `Hola FIXIT, confirmo mi pedido y deseo coordinar la visita técnica.`;
+    mensaje += `Para confirmar su cita técnica, requerimos el abono del 50% ($${anticipo.toFixed(2)}) vía Yappy al 6137-2394 o Banco General a nombre de Virginia Palomino Hoyte (04-72-98-545854-3). Su servicio cuenta con Garantía FIXIT de 30 días.\n\n`;
+    mensaje += `Hola FIXIT, confirmo mi solicitud y adjunto comprobante de anticipo para agendar la visita técnica.`;
 
     setIsSubmitting(false);
 
@@ -348,11 +372,22 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
               <span className="text-[#756A5D]">Teléfono:</span>
               <span className="font-semibold text-[#082D60]">{clientPhone}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-[#756A5D]">Tarifa estimada:</span>
-              <span className="font-bold text-[#0988F5]">
-                ${effectivePrice.toFixed(2)} {isEvaluationMode ? '(Evaluación técnica acreditable)' : '(Total estimado)'}
+            <div className="flex justify-between border-b border-[#DED4C5]/60 pb-2">
+              <span className="text-[#756A5D]">Tarifa total:</span>
+              <span className="font-bold text-[#082D60]">
+                ${effectivePrice.toFixed(2)} {isEvaluationMode ? '(Evaluación técnica acreditable)' : ''}
               </span>
+            </div>
+            <div className="flex justify-between border-b border-[#DED4C5]/60 pb-2">
+              <span className="text-[#756A5D]">Anticipo para separar cita (50%):</span>
+              <span className="font-bold text-[#0988F5]">
+                ${(effectivePrice * 0.5).toFixed(2)}
+              </span>
+            </div>
+            <div className="pt-1 text-[11px] text-[#756A5D] space-y-1">
+              <div><strong>Yappy:</strong> 6137-2394</div>
+              <div><strong>Banco General:</strong> Cta. Ahorros 04-72-98-545854-3 (Virginia Palomino Hoyte)</div>
+              <div className="text-[#53653D] font-medium pt-0.5">🛡️ Garantía FIXIT de 30 días en mano de obra.</div>
             </div>
           </div>
 
@@ -525,8 +560,17 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
           </p>
         </div>
 
-        {/* Contact fields */}
+        {/* Contact fields - Formulario obligatorio para agendar */}
         <div className="space-y-3.5 pt-1">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-[#082D60] uppercase tracking-wider block">
+              Datos del cliente (Requeridos para agendar)
+            </span>
+            <span className="text-[10px] text-[#756A5D] bg-[#F6F4EF] px-2 py-0.5 rounded-full font-medium">
+              3 campos obligatorios
+            </span>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-[#756A5D] mb-1">
               Nombre completo <span className="text-red-500">*</span>
@@ -538,6 +582,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
                 value={customerName}
                 onChange={(e) => onChangeCustomerName(e.target.value)}
                 placeholder="Ej. Carlos Chen"
+                required
                 className="w-full pl-9 pr-3.5 py-2.5 bg-[#F6F4EF]/50 hover:bg-[#F6F4EF] focus:bg-[#FFFEFA] border border-[#DED4C5] focus:border-[#0988F5] rounded-xl text-sm text-[#1F2421] placeholder-[#756A5D]/60 focus:outline-none transition-all"
                 id="input-customer-name"
               />
@@ -555,6 +600,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
                 value={customerPhone}
                 onChange={(e) => onChangeCustomerPhone(e.target.value)}
                 placeholder="Ej. +507 6123-4567"
+                required
                 className="w-full pl-9 pr-3.5 py-2.5 bg-[#F6F4EF]/50 hover:bg-[#F6F4EF] focus:bg-[#FFFEFA] border border-[#DED4C5] focus:border-[#0988F5] rounded-xl text-sm text-[#1F2421] placeholder-[#756A5D]/60 focus:outline-none transition-all"
                 id="input-customer-phone"
               />
@@ -565,7 +611,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-semibold text-[#756A5D]">
-                Dirección / Ubicación en Ciudad de Panamá
+                Dirección / Ubicación en Ciudad de Panamá <span className="text-red-500">*</span>
               </label>
               <button
                 type="button"
@@ -584,6 +630,7 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
               onChange={(e) => onChangeCustomerAddress(e.target.value)}
               placeholder="Ej. San Francisco, Calle 74, PH Vista Marina, Apto 12B"
               rows={2}
+              required
               className="w-full px-3.5 py-2 bg-[#F6F4EF]/50 hover:bg-[#F6F4EF] focus:bg-[#FFFEFA] border border-[#DED4C5] focus:border-[#0988F5] rounded-xl text-xs text-[#1F2421] placeholder-[#756A5D]/60 focus:outline-none transition-all resize-none"
               id="input-customer-address"
             />
@@ -675,6 +722,42 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
             Al tocar el botón, tu pedido se guardará en nuestro sistema con un número único de seguimiento y se abrirá WhatsApp con los datos completos listos para coordinar la visita técnica.
           </p>
         </div>
+
+        {/* Official FIXIT Payment & Deposit Policy Card */}
+        <div className="bg-[#FFFEFA] rounded-2xl p-4 border border-[#0988F5]/30 bg-gradient-to-br from-[#0988F5]/5 to-transparent space-y-3 text-xs">
+          <div className="flex items-center justify-between border-b border-[#0988F5]/20 pb-2">
+            <div className="flex items-center gap-2 text-[#082D60] font-bold">
+              <CreditCard className="w-4 h-4 text-[#0988F5]" />
+              <span>Anticipo para Separar Cita (50%)</span>
+            </div>
+            <span className="font-bold text-[#0988F5] text-sm">
+              ${(effectivePrice * 0.5).toFixed(2)}
+            </span>
+          </div>
+
+          <p className="text-[11px] text-[#756A5D] leading-relaxed">
+            Todo servicio requiere el pago del 50% por adelantado para separar la cita. Sin comprobante, no hay agendamiento.
+          </p>
+
+          <div className="bg-[#F6F4EF] rounded-xl p-3 space-y-1.5 text-[11px]">
+            <div className="flex justify-between items-center text-[#1F2421]">
+              <span className="font-semibold text-[#082D60]">Yappy Oficial:</span>
+              <span className="font-mono font-bold text-[#0988F5]">6137-2394</span>
+            </div>
+            <div className="flex justify-between items-start text-[#1F2421]">
+              <span className="font-semibold text-[#082D60]">Banco General:</span>
+              <div className="text-right">
+                <span className="font-mono font-bold text-[#082D60] block">04-72-98-545854-3</span>
+                <span className="text-[10px] text-[#756A5D]">Ahorros • Virginia Palomino Hoyte</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[11px] text-[#53653D] font-medium pt-0.5">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-[#53653D]" />
+            <span>Garantía FIXIT de 30 días en mano de obra. Visita de inspección de $25 es 100% deducible.</span>
+          </div>
+        </div>
       </div>
 
       {/* MAIN WHATSAPP CTA ONLY */}
@@ -682,14 +765,24 @@ export const SummaryWhatsAppStep: React.FC<SummaryWhatsAppStepProps> = ({
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={isSubmitting}
-          className="w-full py-4 px-6 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] active:scale-[0.99] text-white font-bold text-base shadow-sm hover:shadow transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60"
+          disabled={!isFormValid || isSubmitting}
+          className={`w-full py-4 px-6 rounded-2xl font-bold text-base shadow-sm transition-all flex items-center justify-center gap-2.5 ${
+            !isFormValid || isSubmitting
+              ? 'bg-[#CBD5E1] text-[#64748B] cursor-not-allowed opacity-80'
+              : 'bg-[#25D366] hover:bg-[#20bd5a] active:scale-[0.99] text-white hover:shadow cursor-pointer'
+          }`}
           id="btn-confirm-order"
           data-testid="btn-send-whatsapp-order"
         >
-          <MessageCircle className="w-5 h-5 fill-white stroke-none" />
+          <MessageCircle className={`w-5 h-5 ${!isFormValid || isSubmitting ? 'fill-[#64748B]' : 'fill-white'} stroke-none`} />
           <span>{isSubmitting ? submitStatusText : 'Confirmar y Enviar por WhatsApp'}</span>
         </button>
+
+        {!isFormValid && (
+          <p className="text-[11px] text-center text-[#756A5D]">
+            Por favor ingresa tu <span className="font-semibold text-[#082D60]">Nombre</span>, <span className="font-semibold text-[#082D60]">Teléfono</span> y <span className="font-semibold text-[#082D60]">Dirección</span> para habilitar el envío por WhatsApp.
+          </p>
+        )}
       </div>
     </div>
   );

@@ -8,10 +8,12 @@ import {
   Zap,
   Home,
   Paintbrush,
+  Wind,
   ChevronRight,
   ShieldCheck,
   BadgeCheck,
   Building2,
+  ClipboardCheck,
 } from 'lucide-react';
 
 interface CategorySelectionStepProps {
@@ -32,10 +34,15 @@ export const CategorySelectionStep: React.FC<CategorySelectionStepProps> = ({
 
   const getCategoryIcon = (category: ServiceCategory) => {
     switch (category) {
+      case 'Diagnóstico':
+        return <ClipboardCheck className="w-4 h-4 text-[#0B72D9]" />;
       case 'Plomería':
         return <Wrench className="w-4 h-4 text-[#53653D]" />;
       case 'Electricidad':
         return <Zap className="w-4 h-4 text-[#B98A43]" />;
+      case 'Climatización':
+      case 'Aire Acondicionado':
+        return <Wind className="w-4 h-4 text-[#0988F5]" />;
       case 'Pintura':
       case 'Pintura residencial':
         return <Paintbrush className="w-4 h-4 text-[#B98A43]" />;
@@ -47,10 +54,15 @@ export const CategorySelectionStep: React.FC<CategorySelectionStepProps> = ({
 
   const getCategoryImage = (category: ServiceCategory) => {
     switch (category) {
+      case 'Diagnóstico':
+        return FIXIT_IMAGES.heroHome;
       case 'Plomería':
         return FIXIT_IMAGES.plumbing;
       case 'Electricidad':
         return FIXIT_IMAGES.electricity;
+      case 'Climatización':
+      case 'Aire Acondicionado':
+        return FIXIT_IMAGES.ac;
       case 'Pintura':
       case 'Pintura residencial':
         return FIXIT_IMAGES.painting;

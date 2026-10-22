@@ -349,5 +349,13 @@ service cloud.firestore {
       allow create, update: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isOperator());
       allow delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
+
+    // =========================================================================
+    // Leads Collection (Direct Lead Capture before WhatsApp)
+    // =========================================================================
+    match /leads/{leadId} {
+      allow create: if true;
+      allow read, update, delete: if isOperator();
+    }
   }
 }
