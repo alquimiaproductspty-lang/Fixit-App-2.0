@@ -5,6 +5,8 @@ import { AdminDashboardView } from './components/AdminDashboardView';
 import { FixitLogo } from './components/FixitLogo';
 import { Shield, ShieldCheck, LogOut, AlertCircle, Loader2, Lock } from 'lucide-react';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
+import PrivacyPolicy from './pages/PrivacyPolicy';
+import TermsOfService from './pages/TermsOfService';
 import { usePWAUpdate } from './hooks/usePWAUpdate';
 
 /**
@@ -33,6 +35,15 @@ export default function App() {
       });
     }
   }, [authState.loading, authState.user]);
+
+  // 0. Rutas legales públicas (sin auth): los enlaces del login abren estas URLs en pestaña nueva
+  const publicPath = typeof window !== 'undefined' ? window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase() : '';
+  if (['terminos', 'terms', 'terms-of-service', 'terminos-de-servicio', 'terminos-y-condiciones'].includes(publicPath)) {
+    return <TermsOfService onBack={() => { window.location.href = '/'; }} onGoHome={() => { window.location.href = '/'; }} />;
+  }
+  if (['privacidad', 'privacy', 'privacy-policy', 'politica-de-privacidad', 'politica-privacidad'].includes(publicPath)) {
+    return <PrivacyPolicy onBack={() => { window.location.href = '/'; }} onGoHome={() => { window.location.href = '/'; }} />;
+  }
 
   // 1. Estado de Carga Inicial
   if (authState.loading) {

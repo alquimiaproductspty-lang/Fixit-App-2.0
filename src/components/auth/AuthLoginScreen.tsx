@@ -3,6 +3,7 @@ import { FixitLogo } from '../FixitLogo';
 import { ArrowLeft, Loader2, ShieldCheck, CheckCircle2, Sparkles, User } from 'lucide-react';
 import { authService } from '../../lib/firebase';
 import { mapAuthErrorToFriendlyMessage } from '../../lib/authErrors';
+import { AuthEmailForm } from './AuthEmailForm';
 
 interface AuthLoginScreenProps {
   onSuccess?: () => void;
@@ -24,9 +25,10 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
 }) => {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isGuestLoading, setIsGuestLoading] = useState(false);
+  const [isEmailLoading, setIsEmailLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const isBusy = isGoogleLoading || isGuestLoading;
+  const isBusy = isGoogleLoading || isGuestLoading || isEmailLoading;
 
   const handleGoogleSignIn = async () => {
     if (isBusy) return;
@@ -38,7 +40,7 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
       if (onSuccess) {
         onSuccess();
       } else {
-        onGoBack();
+        onGoBack?.();
       }
     } catch (err: unknown) {
       const errCode = (err as { code?: string })?.code;
@@ -71,7 +73,7 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
       if (onSuccess) {
         onSuccess();
       } else {
-        onGoBack();
+        onGoBack?.();
       }
     } catch (err: unknown) {
       const errCode = (err as { code?: string })?.code;
@@ -148,6 +150,22 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
 
           {/* Main Action Buttons */}
           <div className="pt-2 pb-1 space-y-3">
+            {/* Email / Password Sign-In */}
+            <AuthEmailForm
+              disabled={isBusy}
+              onBusyChange={setIsEmailLoading}
+              onError={setErrorMessage}
+              onSuccess={onSuccess}
+              onGoBack={onGoBack}
+            />
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 py-1">
+              <span className="flex-1 h-px bg-[#DED4C5]/70" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#756A5D]">o</span>
+              <span className="flex-1 h-px bg-[#DED4C5]/70" />
+            </div>
+
             {/* Google Sign-In Main Button */}
             <button
               type="button"
@@ -233,7 +251,7 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
 
           {/* Legal Note */}
           <p className="text-[11px] text-[#756A5D]/80 leading-relaxed pt-2">
-            Al continuar con Google, aceptas los{' '}
+            Al continuar, aceptas los{' '}
             <a href="/terminos" target="_blank" rel="noopener noreferrer" className="text-[#0B72D9] hover:underline">
               Términos de Servicio
             </a>{' '}

@@ -39,6 +39,7 @@ import {
   ROLE_DISPLAY,
   OFFICIAL_STATUS_DISPLAY,
   TechnicianAssignment,
+  AssignTechnicianInput,
   AssignmentStatus,
   QuoteStatus
 } from '../types';
@@ -1238,6 +1239,138 @@ export async function updateTechnicianAssignmentStatusInFirestore(
 }
 
 // ============================================================================
+// ============================================================================
+// UBER-STYLE ASSIGNMENT SERVICE — Fase A (service layer only)
+// ============================================================================
+export interface AssignTechnicianResult {
+  order: ServiceRequest | null;
+  assignment: TechnicianAssignment;
+}
+
+export async function assignTechnicianToOrder(
+  orderId: string,
+  input: AssignTechnicianInput,
+  authorName: string = 'Operador FIXIT'
+): Promise<AssignTechnicianResult> {
+  const cleanOrderId = orderId?.trim();
+  if (!cleanOrderId) {
+    throw new Error('assignTechnicianToOrder: orderId es requerido.');
+  }
+  const tecnicoId = input?.tecnicoId?.trim();
+  if (!tecnicoId) {
+    throw new Error('assignTechnicianToOrder: tecnicoId es requerido.');
+  }
+
+  // 1. Resolver pedido (Firestore primero, caché local como fallback)
+  let order: ServiceRequest | null = null;
+  try {
+    const orderSnap = await getDoc(doc(db, 'requests', cleanOrderId));
+    if (orderSnap.exists()) {
+      order = { ...(orderSnap.data() as ServiceRequest), id: orderSnap.id };
+    }
+  } catch (err) {
+    console.warn('[Assign] requests getDoc fallback a caché:', err);
+  }
+  if (!order) {
+    const cachedOrders = loadFromCache<ServiceRequest[]>(CACHE_KEY_ORDERS) || [];
+    order = cachedOrders.find((o) => o.id === cleanOrderId) || null;
+  }
+  if (!order) {
+    throw new Error(`assignTechnicianToOrder: pedido ${cleanOrderId} no encontrado.`);
+  }
+
+  // 2. Validar que el pedido no esté en estado terminal
+  const currentStatus = normalizeStatus(order.estado);
+  if (currentStatus === 'COMPLETADA' || currentStatus === 'CANCELADA' || currentStatus === 'ARCHIVADA') {
+    throw new Error(
+      `assignTechnicianToOrder: no se puede asignar técnico al pedido ${cleanOrderId} en estado terminal ${currentStatus}.`
+    );
+  }
+
+  // 3. Resolver técnico en technicians/ y luego en fixers/
+  let technician: Technician | null = null;
+  try {
+    const techSnap = await getDoc(doc(db, 'technicians', tecnicoId));
+    if (techSnap.exists()) {
+      technician = { ...(techSnap.data() as Technician), id: techSnap.id };
+    }
+  } catch (err) {
+    console.warn('[Assign] technicians getDoc fallback:', err);
+  }
+  if (!technician) {
+    try {
+      const fixerSnap = await getDoc(doc(db, 'fixers', tecnicoId));
+      if (fixerSnap.exists()) {
+        const f = fixerSnap.data() as Record<string, any>;
+        technician = {
+          id: fixerSnap.id,
+          nombre: f.nombre || f.displayName || tecnicoId,
+          telefono: f.telefono || f.phone || '',
+          correo: f.correo || f.email || '',
+          disponibilidad: f.disponibilidad,
+          activo: f.disponibilidad ? f.disponibilidad !== 'Inactivo' : f.activo !== false,
+          especialidad: f.especialidad || 'Reparaciones del hogar',
+          zona_cobertura: f.zona_cobertura || '',
+          calificacion: f.calificacion,
+          trabajos_completados: f.trabajos_realizados ?? f.trabajos_completados,
+        };
+      }
+    } catch (err) {
+      console.warn('[Assign] fixers getDoc fallback:', err);
+    }
+  }
+  if (!technician) {
+    const cachedTechs = loadFromCache<Technician[]>(CACHE_KEY_TECHS) || [];
+    technician = cachedTechs.find((t) => t.id === tecnicoId) || null;
+  }
+  if (!technician) {
+    throw new Error(`assignTechnicianToOrder: técnico ${tecnicoId} no encontrado en technicians/fixers.`);
+  }
+
+  // 4. Actualizar pedido vía updateOrderInFirestore
+  const fechaProgramada = input.fecha_programada?.trim();
+  const nextStatus: OfficialRequestStatus = fechaProgramada ? 'PROGRAMADA' : 'ASIGNADA';
+  const updatedOrder = await updateOrderInFirestore(
+    cleanOrderId,
+    {
+      tecnico_id: technician.id,
+      tecnico_asignado: technician.id,
+      tecnico_nombre: technician.nombre,
+      estado: nextStatus,
+    },
+    authorName,
+    `Técnico asignado: ${technician.nombre}${fechaProgramada ? ` (programado: ${fechaProgramada})` : ''}`
+  );
+
+  // 5. Crear asignación operativa reutilizando createTechnicianAssignmentInFirestore
+  const assignment = await createTechnicianAssignmentInFirestore(
+    {
+      tecnico_id: technician.id,
+      tecnico_nombre: technician.nombre,
+      tecnico_contacto: technician.telefono || '',
+      tecnico_telefono: technician.telefono || '',
+      solicitud_id: cleanOrderId,
+      solicitud_codigo: order.numero_pedido || order.codigo_seguimiento || cleanOrderId,
+      fecha_asignacion: new Date().toISOString(),
+      ...(fechaProgramada ? { fecha_programada: fechaProgramada } : {}),
+      estado: nextStatus as AssignmentStatus,
+      ...(input.notas !== undefined ? { notas: input.notas } : {}),
+    },
+    authorName
+  );
+
+  return {
+    order: updatedOrder || {
+      ...order,
+      tecnico_id: technician.id,
+      tecnico_asignado: technician.id,
+      tecnico_nombre: technician.nombre,
+      estado: nextStatus,
+    },
+    assignment,
+  };
+}
+
 // PAYMENTS & TRANSACTIONS SERVICE (payments/{paymentId})
 // ============================================================================
 export async function getPaymentsFromFirestore(options?: {

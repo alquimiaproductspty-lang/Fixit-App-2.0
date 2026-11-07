@@ -8,12 +8,12 @@ importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js
 importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js');
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBX22IONw9X-BeSKggN4nIqzxIuavOoUw8",
-  authDomain: "advance-facet-h9v0l.firebaseapp.com",
-  projectId: "advance-facet-h9v0l",
-  storageBucket: "advance-facet-h9v0l.firebasestorage.app",
-  messagingSenderId: "2033111491",
-  appId: "1:2033111491:web:7f3e24d4981d2d3d7dad76"
+  apiKey: "AIzaSyB6oUfRB3P3rUsp9xVozlseuxtBnLLUyls",
+  authDomain: "fixit-panama.firebaseapp.com",
+  projectId: "fixit-panama",
+  storageBucket: "fixit-panama.firebasestorage.app",
+  messagingSenderId: "409363334329",
+  appId: "1:409363334329:web:430d69caf5cae59bc4c768"
 };
 
 // Inicializar Firebase en el Service Worker

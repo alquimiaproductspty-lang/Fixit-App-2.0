@@ -540,11 +540,20 @@ export interface ServiceRequest {
   ac_installation_details?: ACInstallationDetails;
 }
 
+export type TechnicianAvailability = 'Disponible' | 'En servicio' | 'Inactivo';
+
+export interface AssignTechnicianInput {
+  tecnicoId: string;
+  fecha_programada?: string;
+  notas?: string;
+}
+
 export interface Technician {
   id: string;
   nombre: string;
   telefono: string;
   correo?: string;
+  disponibilidad?: TechnicianAvailability;
   activo: boolean;
   especialidad: ServiceCategory | 'Ambas' | string;
   especialidades?: ServiceCategory[];

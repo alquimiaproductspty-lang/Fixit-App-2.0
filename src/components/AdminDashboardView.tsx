@@ -15,7 +15,8 @@ import {
 import { db, auth, AuthState } from '../lib/firebase';
 import { getNextMonthlyOrderNumber } from '../lib/orderConsecutive';
 import { FIXIT_CATALOG } from '../data/catalog';
-import { sanitizeForFirestore } from '../lib/firestoreService';
+import { sanitizeForFirestore, updateOrderInFirestore, assignTechnicianToOrder } from '../lib/firestoreService';
+import { normalizeStatus, OFFICIAL_STATUS_DISPLAY, type OfficialRequestStatus } from '../types';
 import { 
   Users, 
   Wrench, 
@@ -154,6 +155,14 @@ export const DEFAULT_INITIAL_FIXERS: AdminFixer[] = [
   },
 ];
 
+const ORDER_STATUS_OPTIONS: { value: OfficialRequestStatus; label: string }[] = [
+  { value: 'ASIGNADA', label: 'Asignada' },
+  { value: 'PROGRAMADA', label: 'Programada' },
+  { value: 'EN_PROCESO', label: 'En proceso' },
+  { value: 'COMPLETADA', label: 'Completada' },
+  { value: 'CANCELADA', label: 'Cancelada' },
+];
+
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   authState,
   onGoHome,
@@ -213,6 +222,15 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   const [orderToManage, setOrderToManage] = useState<AdminOrder | null>(null);
   const [isActionInProgress, setIsActionInProgress] = useState(false);
+
+  const [orderToAssign, setOrderToAssign] = useState<AdminOrder | null>(null);
+  const [assignFixerId, setAssignFixerId] = useState('');
+  const [assignScheduledDate, setAssignScheduledDate] = useState('');
+  const [assignNotes, setAssignNotes] = useState('');
+  const [assignFilterSpecialty, setAssignFilterSpecialty] = useState('all');
+  const [assignFilterZone, setAssignFilterZone] = useState('');
+  const [assignFilterAvailability, setAssignFilterAvailability] = useState('all');
+  const [isAssigning, setIsAssigning] = useState(false);
 
   const [nextConsecutivePreview, setNextConsecutivePreview] = useState<string>('');
   const [isGeneratingConsecutive, setIsGeneratingConsecutive] = useState(false);
@@ -419,11 +437,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     return orders.filter((ord) => {
       if (orderStatusFilter !== 'all') {
         const s = (ord.estado || '').toLowerCase();
-        if (orderStatusFilter === 'Pendiente' && !s.includes('pendient') && !s.includes('nuev')) return false;
-        if (orderStatusFilter === 'En camino' && !s.includes('camino') && !s.includes('asigna') && !s.includes('program')) return false;
-        if (orderStatusFilter === 'En progreso' && !s.includes('progres') && !s.includes('sitio')) return false;
-        if (orderStatusFilter === 'Completado' && !s.includes('complet')) return false;
-        if (orderStatusFilter === 'Cancelado' && !s.includes('cancel')) return false;
+        const official = normalizeStatus(ord.estado);
+        if (orderStatusFilter === 'Pendiente' && !s.includes('pendient') && !s.includes('nuev') && official !== 'NUEVA') return false;
+        if (orderStatusFilter === 'En camino' && !s.includes('camino') && !s.includes('asigna') && !s.includes('program') && official !== 'ASIGNADA' && official !== 'PROGRAMADA') return false;
+        if (orderStatusFilter === 'En progreso' && !s.includes('progres') && !s.includes('sitio') && !s.includes('proceso') && official !== 'EN_PROCESO') return false;
+        if (orderStatusFilter === 'Completado' && !s.includes('complet') && official !== 'COMPLETADA') return false;
+        if (orderStatusFilter === 'Cancelado' && !s.includes('cancel') && official !== 'CANCELADA') return false;
       }
       if (orderSearch.trim()) {
         const term = orderSearch.toLowerCase();
@@ -441,6 +460,22 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     if (fixerFilter === 'all') return fixers;
     return fixers.filter((f) => f.especialidad.toLowerCase().includes(fixerFilter.toLowerCase()));
   }, [fixers, fixerFilter]);
+
+  const assignFilteredFixers = useMemo(() => {
+    return fixers.filter((f) => {
+      if (assignFilterSpecialty !== 'all' && f.especialidad !== assignFilterSpecialty) return false;
+      if (assignFilterAvailability !== 'all' && f.disponibilidad !== assignFilterAvailability) return false;
+      if (assignFilterZone.trim()) {
+        const zone = (f.zona_cobertura || '').toLowerCase();
+        if (!zone.includes(assignFilterZone.trim().toLowerCase())) return false;
+      }
+      return true;
+    });
+  }, [fixers, assignFilterSpecialty, assignFilterAvailability, assignFilterZone]);
+
+  const assignSpecialties = useMemo(() => {
+    return Array.from(new Set(fixers.map((f) => f.especialidad).filter(Boolean)));
+  }, [fixers]);
 
   const handleExportClientsCSV = () => {
     if (clients.length === 0) {
@@ -768,18 +803,82 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
     try {
-      const updateData = {
-        estado: newStatus,
-        updatedAt: new Date().toISOString(),
-      };
-      await updateDoc(doc(db, 'requests', orderId), updateData);
+      const authorName = user?.displayName || user?.nombre || user?.email || 'Operador FIXIT';
+      const updated = await updateOrderInFirestore(
+        orderId,
+        { estado: newStatus as OfficialRequestStatus },
+        authorName,
+        `Estado actualizado a ${newStatus} desde panel admin`
+      );
+      const normalizedStatus = updated?.estado || normalizeStatus(newStatus);
       try {
-        await updateDoc(doc(db, 'orders', orderId), updateData);
+        await updateDoc(doc(db, 'orders', orderId), {
+          estado: normalizedStatus,
+          updatedAt: new Date().toISOString(),
+        });
       } catch {}
-      showToast(`Estado actualizado a: ${newStatus}`, 'info');
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, estado: normalizedStatus } : o)));
+      showToast(`Estado actualizado a: ${OFFICIAL_STATUS_DISPLAY[normalizedStatus as OfficialRequestStatus]?.es || normalizedStatus}`, 'info');
     } catch (err: any) {
       console.error('[Admin] Error actualizando estado:', err);
       showToast(`Error actualizando estado: ${err.message || 'Error'}`, 'error');
+    }
+  };
+
+  const openAssignModal = (ord: AdminOrder) => {
+    setOrderToAssign(ord);
+    setAssignFixerId(fixers.some((f) => f.id === ord.tecnico_id) ? (ord.tecnico_id as string) : '');
+    setAssignScheduledDate('');
+    setAssignNotes('');
+    setAssignFilterSpecialty('all');
+    setAssignFilterZone('');
+    setAssignFilterAvailability('all');
+  };
+
+  const handleConfirmAssignTechnician = async () => {
+    if (!orderToAssign) return;
+    if (!assignFixerId) {
+      showToast('Selecciona un técnico para asignar.', 'error');
+      return;
+    }
+    setIsAssigning(true);
+    try {
+      const authorName = user?.displayName || user?.nombre || user?.email || 'Operador FIXIT';
+      const result = await assignTechnicianToOrder(
+        orderToAssign.id,
+        {
+          tecnicoId: assignFixerId,
+          ...(assignScheduledDate.trim() ? { fecha_programada: assignScheduledDate.trim() } : {}),
+          ...(assignNotes.trim() ? { notas: assignNotes.trim() } : {}),
+        },
+        authorName
+      );
+      try {
+        await updateDoc(doc(db, 'orders', orderToAssign.id), sanitizeForFirestore({
+          tecnico_id: result.order?.tecnico_id,
+          tecnico_asignado: result.order?.tecnico_asignado,
+          tecnico_nombre: result.order?.tecnico_nombre,
+          estado: result.order?.estado,
+          updatedAt: new Date().toISOString(),
+        }));
+      } catch {}
+      setOrders((prev) => prev.map((o) => (o.id === orderToAssign.id
+        ? {
+            ...o,
+            tecnico_id: result.order?.tecnico_id,
+            tecnico_asignado: result.order?.tecnico_asignado,
+            tecnico_nombre: result.order?.tecnico_nombre,
+            estado: result.order?.estado || o.estado,
+          }
+        : o)));
+      const consecutivo = orderToAssign.numero_pedido || orderToAssign.consecutiveId || orderToAssign.orderNumber || orderToAssign.codigo_seguimiento || orderToAssign.id;
+      showToast(`Técnico ${result.order?.tecnico_nombre || ''} asignado al pedido ${consecutivo}.`, 'success');
+      setOrderToAssign(null);
+    } catch (err: any) {
+      console.error('[Admin] Error asignando técnico:', err);
+      showToast(`Error asignando técnico: ${err.message || 'Error'}`, 'error');
+    } finally {
+      setIsAssigning(false);
     }
   };
 
@@ -1333,6 +1432,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 ) : (
                   filteredOrders.map((ord) => {
                     const consecutivo = ord.numero_pedido || ord.consecutiveId || ord.orderNumber || ord.codigo_seguimiento || 'FIX-PENDIENTE';
+                    const officialStatus = normalizeStatus(ord.estado);
+                    const isOfficialListed = ORDER_STATUS_OPTIONS.some((o) => o.value === officialStatus);
                     return (
                       <tr key={ord.id} className="hover:bg-[#F6F4EF]/50 transition-colors">
                         <td className="py-3 px-4 font-mono font-bold text-[#082D60] whitespace-nowrap">
@@ -1358,15 +1459,20 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                         </td>
                         <td className="py-3 px-4">
                           <select
-                            value={ord.estado || 'Pendiente'}
+                            value={officialStatus}
                             onChange={(e) => handleUpdateOrderStatus(ord.id, e.target.value)}
                             className="text-[11px] font-bold py-1 px-2 rounded-lg bg-[#F6F4EF] border border-[#DED4C5] text-[#1F2421] cursor-pointer"
                           >
-                            <option value="Pendiente">Pendiente</option>
-                            <option value="En camino">En camino</option>
-                            <option value="En progreso">En progreso</option>
-                            <option value="Completado">Completado</option>
-                            <option value="Cancelado">Cancelado</option>
+                            {!isOfficialListed && (
+                              <option value={officialStatus}>
+                                {OFFICIAL_STATUS_DISPLAY[officialStatus]?.es || ord.estado || 'Actual'}
+                              </option>
+                            )}
+                            {ORDER_STATUS_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
                           </select>
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
@@ -1381,6 +1487,15 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                                 <MessageCircle className="w-3.5 h-3.5" />
                               </a>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => openAssignModal(ord)}
+                              title={ord.tecnico_nombre || ord.tecnico_asignado ? 'Reasignar técnico' : 'Asignar técnico'}
+                              className="py-1 px-2.5 rounded-lg bg-[#0B72D9]/10 text-[#0B72D9] hover:bg-[#0B72D9]/20 transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1"
+                            >
+                              <User className="w-3.5 h-3.5" />
+                              Asignar
+                            </button>
                             <button
                               type="button"
                               onClick={() => setOrderToManage(ord)}
@@ -1602,6 +1717,73 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               <button onClick={handleConfirmCancelOrder} className="py-2 bg-amber-600 text-white rounded-xl text-xs font-bold">Marcar como Cancelado</button>
               <button onClick={handleConfirmDeleteOrder} className="py-2 bg-rose-600 text-white rounded-xl text-xs font-bold">Borrar de BD</button>
               <button onClick={() => setOrderToManage(null)} className="py-2 border border-[#DED4C5] rounded-xl text-xs">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 5: ASIGNAR / REASIGNAR TÉCNICO (Uber Fase A)              */}
+      {/* ============================================================== */}
+      {orderToAssign && (
+        <div className="fixed inset-0 z-50 bg-[#082D60]/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#DED4C5]/60 pb-3">
+              <div>
+                <h3 className="font-serif font-bold text-lg text-[#1F2421]">Asignar técnico</h3>
+                <p className="text-[11px] text-[#756A5D] font-mono">
+                  {orderToAssign.numero_pedido || orderToAssign.consecutiveId || orderToAssign.orderNumber || orderToAssign.codigo_seguimiento || orderToAssign.id}
+                  {' · '}
+                  <span className="font-semibold">
+                    Actual: {orderToAssign.tecnico_nombre || orderToAssign.tecnico_asignado || 'Sin asignar'}
+                  </span>
+                </p>
+              </div>
+              <button onClick={() => setOrderToAssign(null)}>
+                <X className="w-5 h-5 text-[#756A5D]" />
+              </button>
+            </div>
+            <div className="space-y-3 text-xs max-h-[60vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-2">
+                <select value={assignFilterSpecialty} onChange={(e) => setAssignFilterSpecialty(e.target.value)} className="p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]">
+                  <option value="all">Todas las especialidades</option>
+                  {assignSpecialties.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <select value={assignFilterAvailability} onChange={(e) => setAssignFilterAvailability(e.target.value)} className="p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]">
+                  <option value="all">Toda disponibilidad</option>
+                  <option value="Disponible">Disponible</option>
+                  <option value="En servicio">En servicio</option>
+                  <option value="Inactivo">Inactivo</option>
+                </select>
+              </div>
+              <input type="text" placeholder="Filtrar por zona de cobertura..." value={assignFilterZone} onChange={(e) => setAssignFilterZone(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
+              <select value={assignFixerId} onChange={(e) => setAssignFixerId(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-semibold">
+                <option value="">Selecciona un técnico ({assignFilteredFixers.length})</option>
+                {assignFilteredFixers.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.nombre} — {f.especialidad} · {f.disponibilidad}{f.zona_cobertura ? ` · ${f.zona_cobertura}` : ''}
+                  </option>
+                ))}
+              </select>
+              {fixers.find((f) => f.id === assignFixerId)?.disponibilidad === 'En servicio' && (
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Este técnico está en servicio. Puedes asignarlo igual, pero verifica su carga.
+                </p>
+              )}
+              <label className="block space-y-1">
+                <span className="text-[11px] font-semibold text-[#756A5D]">Fecha programada (opcional → estado Programada)</span>
+                <input type="datetime-local" value={assignScheduledDate} onChange={(e) => setAssignScheduledDate(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
+              </label>
+              <textarea placeholder="Notas de asignación (opcional)" value={assignNotes} onChange={(e) => setAssignNotes(e.target.value)} rows={2} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
+              <div className="flex justify-end gap-2 pt-1">
+                <button onClick={() => setOrderToAssign(null)} className="py-2.5 px-4 border border-[#DED4C5] rounded-xl font-semibold">Cancelar</button>
+                <button onClick={handleConfirmAssignTechnician} disabled={!assignFixerId || isAssigning} className="py-2.5 px-4 rounded-xl bg-[#0B72D9] hover:bg-[#0962BC] disabled:opacity-50 text-white font-bold">
+                  {isAssigning ? 'Asignando...' : 'Confirmar asignación'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

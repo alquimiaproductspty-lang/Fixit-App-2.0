@@ -45,8 +45,8 @@ import {
 // ============================================================================
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// CRITICAL: Must use firestoreDatabaseId from firebase-applet-config.json
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Firestore en base (default): ahi viven los documentos reales (users, requests, etc.).
+export const db = getFirestore(app);
 export const auth = getAuth(app);
 
 // Explicitly ensure official Firebase browser local persistence for Safari iOS, Chrome Android, and installed PWAs
@@ -121,7 +121,7 @@ async function testConnection() {
     }
   }
 }
-testConnection();
+testConnection(); console.info('[FIXIT Auth] modulo firebase cargado (build con fix loop)');
 
 // ============================================================================
 // Active User & AuthState Definition
@@ -305,14 +305,14 @@ export async function syncUserWithFirestore(fbUser: FirebaseUser): Promise<Activ
   }
 }
 
-let isAutoSigningInGuest = false;
+let isAutoSigningInGuest = false; setTimeout(() => { if (currentAuthState.loading) { console.warn('[FIXIT Auth] watchdog: forzando salida del loader a los 15s'); currentAuthState = { user: null, loading: false, error: null }; notifyAuthListeners(); } }, 15000);
 
 // Single, clean onAuthStateChanged listener
-onAuthStateChanged(auth, async (fbUser) => {
+onAuthStateChanged(auth, async (fbUser) => { console.info('[FIXIT Auth] listener disparo, sesion:', !!fbUser);
   if (fbUser) {
     isAutoSigningInGuest = false;
     try {
-      const activeUser = await syncUserWithFirestore(fbUser);
+      const activeUser = await Promise.race([syncUserWithFirestore(fbUser), new Promise<ActiveUser>((_, reject) => setTimeout(() => reject(new Error('[FIXIT Auth] Timeout en sincronizacion de perfil (12s)')), 12000))]);
       currentAuthState = { user: activeUser, loading: false, error: null };
     } catch (err: any) {
       console.error('[FIXIT Auth Error] onAuthStateChanged sync error:', err);
@@ -335,7 +335,7 @@ onAuthStateChanged(auth, async (fbUser) => {
     if (!isAutoSigningInGuest) {
       isAutoSigningInGuest = true;
       try {
-        await authService.loginAnonymously();
+        console.info('[FIXIT Auth] boot: sin sesion -> login'); currentAuthState = { user: null, loading: false, error: null }; notifyAuthListeners(); // Admin CRM: sin auto-invitado (evita loop con App.tsx)
       } catch (err) {
         console.warn('[FIXIT Auth] Fallback automático de invitado en carga:', err);
         const fallbackGuest = buildActiveUser(
@@ -659,24 +659,11 @@ export const authService = {
     } catch (err) {
       console.warn('[FIXIT Auth] Error al cerrar sesión:', err);
     }
-    // Re-inicializar sesión de invitado para que la aplicación nunca quede en un estado bloqueante
-    try {
-      await this.loginAnonymously();
-    } catch {
-      const fallbackGuest = buildActiveUser(
-        'guest-' + Date.now(),
-        '',
-        'Invitado FIXIT',
-        'CLIENT',
-        'ACTIVE',
-        undefined,
-        undefined,
-        undefined,
-        true
-      );
-      currentAuthState = { user: fallbackGuest, loading: false, error: null };
-      notifyAuthListeners();
-    }
+    // Consola admin: caer siempre a logged-out y notificar, para mostrar el login
+    // aunque no hubiera sesion Firebase (ej. invitado local). El null-branch del
+    // listener aplica el mismo estado si fbSignOut dispara onAuthStateChanged.
+    currentAuthState = { user: null, loading: false, error: null };
+    notifyAuthListeners();
   },
 
   // Permanent Account & Data Deletion (Derechos ARCO / Privacidad)
