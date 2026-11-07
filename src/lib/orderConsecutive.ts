@@ -53,3 +53,54 @@ export async function getNextMonthlyOrderNumber(date: Date = new Date()): Promis
     return `FIX-${yy}${mm}-${fallbackSeq}`;
   }
 }
+
+/**
+ * Genera de forma atómica el siguiente folio mensual de cotización en Firestore:
+ * Formato: FIXIT-YYYY-MM-### (inicia en 100 cada mes, ej. FIXIT-2026-11-100)
+ */
+export async function getNextMonthlyQuoteFolio(date: Date = new Date()): Promise<string> {
+  const fullYear = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const counterDocId = `quotes_${fullYear}_${mm}`;
+  const counterDocRef = doc(db, 'counters', counterDocId);
+
+  try {
+    const nextSeq = await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(counterDocRef);
+      let currentCount = 99;
+      if (snap.exists()) {
+        const data = snap.data();
+        const stored = typeof data.currentCount === 'number'
+          ? data.currentCount
+          : typeof data.count === 'number'
+          ? data.count
+          : 99;
+        currentCount = Math.max(99, stored);
+      }
+
+      const newCount = currentCount + 1;
+      transaction.set(
+        counterDocRef,
+        {
+          currentCount: newCount,
+          count: newCount,
+          prefix: `FIXIT-${fullYear}-${mm}`,
+          year: fullYear,
+          month: date.getMonth() + 1,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      return newCount;
+    });
+
+    const seqFormatted = String(nextSeq).padStart(3, '0');
+    return `FIXIT-${fullYear}-${mm}-${seqFormatted}`;
+  } catch (err) {
+    console.warn('[Counters] runTransaction quote sequence fallback:', err);
+    const fallbackSeq = String(100 + (Date.now() % 900)).padStart(3, '0');
+    return `FIXIT-${fullYear}-${mm}-${fallbackSeq}`;
+  }
+}
+

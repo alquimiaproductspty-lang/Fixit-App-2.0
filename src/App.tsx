@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { authService, AuthState } from './lib/firebase';
 import { AuthLoginScreen } from './components/auth/AuthLoginScreen';
 import { AdminDashboardView } from './components/AdminDashboardView';
+import { FixerDashboardView } from './components/FixerDashboardView';
 import { FixitLogo } from './components/FixitLogo';
-import { Shield, ShieldCheck, LogOut, AlertCircle, Loader2, Lock } from 'lucide-react';
+import { Shield, ShieldCheck, LogOut, Loader2, Lock, Wrench, LayoutDashboard } from 'lucide-react';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
@@ -11,11 +12,12 @@ import { usePWAUpdate } from './hooks/usePWAUpdate';
 
 /**
  * FIXIT App - Internal Operations Console & CRM Architecture
- * Exclusively for staff and administrative control (admin.tudominio.com).
+ * Exclusively for staff, technicians (Fixers) and administrative control (admin.tudominio.com).
  * Public customer quotation flows and install prompts have been decoupled.
  */
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>(() => authService.getAuthState());
+  const [adminViewMode, setAdminViewMode] = useState<'admin' | 'fixer'>('admin');
   const pwaUpdate = usePWAUpdate();
 
   // Escuchar el estado de autenticación en tiempo real
@@ -58,7 +60,7 @@ export default function App() {
           </h2>
           <p className="text-xs text-[#756A5D] flex items-center justify-center gap-1.5">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0B72D9]" />
-            <span>Verificando credenciales de acceso administrativo...</span>
+            <span>Verificando credenciales de acceso operativo...</span>
           </p>
         </div>
       </div>
@@ -75,19 +77,22 @@ export default function App() {
           hideGuest={true}
           showBack={false}
           title="Consola Operativa FIXIT"
-          subtitle="Acceso exclusivo para el equipo de administración y operaciones (admin.tudominio.com)."
+          subtitle="Acceso exclusivo para Administradores, Operadores y Técnicos Fixer (admin.fixitpanama.com)."
         />
         <PWAUpdatePrompt updateState={pwaUpdate} />
       </div>
     );
   }
 
-  // 3. Verificación de Rol de Administrador
+  // 3. Verificación de Roles (ADMIN, OPERATOR, TECHNICIAN)
   const currentUser = authState.user!;
   const isAdmin = Boolean(currentUser.isAdmin || currentUser.role === 'ADMIN');
+  const isOperator = currentUser.role === 'OPERATOR';
+  const isTechnician = currentUser.role === 'TECHNICIAN';
+  const hasConsoleAccess = isAdmin || isOperator || isTechnician;
 
-  // 4. Si el usuario autenticado NO posee rol de ADMIN, restringir acceso
-  if (!isAdmin) {
+  // 4. Si el usuario autenticado NO posee rol de ADMIN, OPERATOR ni TECHNICIAN, restringir acceso
+  if (!hasConsoleAccess) {
     return (
       <div className="min-h-screen bg-[#F6F4EF] flex flex-col items-center justify-center p-6 font-sans">
         <div className="max-w-md w-full bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-6 sm:p-8 shadow-md text-center space-y-5">
@@ -106,7 +111,7 @@ export default function App() {
               La cuenta <strong className="text-[#1F2421]">{currentUser.email || currentUser.displayName}</strong> está registrada con rol de <strong className="text-[#082D60]">{currentUser.role || 'Cliente'}</strong>.
             </p>
             <p className="text-xs text-[#756A5D] leading-relaxed">
-              Este subdominio es de uso exclusivo para Administradores de FIXIT. Si crees que se trata de un error, solicita la elevación de permisos en Firebase.
+              Este subdominio es de uso exclusivo para Administradores y Técnicos Fixer de FIXIT. Si crees que se trata de un error, solicita la elevación de permisos en Firebase.
             </p>
           </div>
 
@@ -117,7 +122,7 @@ export default function App() {
               className="w-full py-3.5 px-4 rounded-2xl bg-[#082D60] hover:bg-[#07244D] text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-xs active:scale-[0.99]"
             >
               <LogOut className="w-4 h-4" />
-              <span>Cerrar Sesión e Iniciar con Cuenta Administradora</span>
+              <span>Cerrar Sesión e Iniciar con Cuenta Autorizada</span>
             </button>
           </div>
         </div>
@@ -125,18 +130,21 @@ export default function App() {
     );
   }
 
-  // 5. Usuario Autenticado con Rol de ADMIN: Renderizar CRM / AdminDashboardView
+  // Determinar si se muestra la Vista Fixer (obligatoria para TECHNICIAN, opcional para ADMIN/OPERATOR)
+  const showFixerView = isTechnician || adminViewMode === 'fixer';
+
+  // 5. Renderizar Consola Interna (CRM Admin o Vista Fixer)
   return (
     <div className="min-h-screen bg-[#F6F4EF] text-[#1F2421] flex flex-col font-sans selection:bg-[#0B72D9]/15">
       {/* Barra Superior Exclusiva para Equipo Interno */}
-      <header className="sticky top-0 z-40 bg-[#FFFEFA]/95 backdrop-blur-md border-b border-[#DED4C5] px-4 sm:px-6 py-2.5">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-[#FFFEFA]/95 backdrop-blur-md border-b border-[#DED4C5] px-4 sm:px-6 py-2.5 no-print">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
           {/* Brand & Subdomain Badge */}
           <div className="flex items-center gap-3">
             <FixitLogo variant="compact" size={28} />
             <div className="hidden sm:block border-l border-[#DED4C5] pl-3">
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#082D60] block">
-                CRM & Control Operativo
+                {showFixerView ? 'Consola Técnica · Vista Fixer' : 'CRM & Control Operativo'}
               </span>
               <span className="text-[11px] text-[#756A5D] font-mono">
                 admin.fixitpanama.com
@@ -144,20 +152,53 @@ export default function App() {
             </div>
           </div>
 
-          {/* Connected Admin Staff Identity & Logout */}
+          {/* Connected Staff Identity, View Switcher & Logout */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Conmutador rápido CRM <-> Vista Fixer para ADMIN / OPERATOR */}
+            {(isAdmin || isOperator) && (
+              <button
+                type="button"
+                onClick={() => setAdminViewMode(showFixerView ? 'admin' : 'fixer')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${
+                  showFixerView
+                    ? 'bg-[#082D60] text-white border-[#082D60] hover:bg-[#07244D]'
+                    : 'bg-[#0B72D9]/10 text-[#0B72D9] border-[#0B72D9]/30 hover:bg-[#0B72D9]/20'
+                }`}
+                title={showFixerView ? 'Volver al panel administrativo CRM' : 'Abrir Vista Fixer y Cotizador Oficial 1:1'}
+              >
+                {showFixerView ? (
+                  <>
+                    <LayoutDashboard className="w-3.5 h-3.5" />
+                    <span>Volver al CRM Admin</span>
+                  </>
+                ) : (
+                  <>
+                    <Wrench className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Vista Fixer / Cotizador</span>
+                    <span className="sm:hidden">Fixer</span>
+                  </>
+                )}
+              </button>
+            )}
+
             <div className="hidden md:flex flex-col text-right">
               <span className="text-xs font-bold text-[#1F2421]">
-                {currentUser.displayName || currentUser.nombre || 'Administrador'}
+                {currentUser.displayName || currentUser.nombre || (isTechnician ? 'Técnico Fixer' : 'Administrador')}
               </span>
               <span className="text-[10px] text-[#756A5D]">
                 {currentUser.email}
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#53653D]/10 border border-[#53653D]/30 text-[#53653D] text-[11px] font-bold">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>ADMIN</span>
+            <div
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                isTechnician
+                  ? 'bg-[#0B72D9]/10 border-[#0B72D9]/30 text-[#0B72D9]'
+                  : 'bg-[#53653D]/10 border-[#53653D]/30 text-[#53653D]'
+              }`}
+            >
+              {isTechnician ? <Wrench className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+              <span>{isTechnician ? 'FIXER' : isOperator ? 'OPERADOR' : 'ADMIN'}</span>
             </div>
 
             <button
@@ -176,13 +217,17 @@ export default function App() {
 
       {/* Main Internal Console Dashboard */}
       <main className="flex-1 pb-12">
-        <AdminDashboardView
-          authState={authState}
-          onGoHome={() => {
-            // En CRM interno, 'onGoHome' recarga o mantiene la vista en el panel
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-        />
+        {showFixerView ? (
+          <FixerDashboardView authState={authState} />
+        ) : (
+          <AdminDashboardView
+            authState={authState}
+            onGoHome={() => {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            onOpenFixerView={() => setAdminViewMode('fixer')}
+          />
+        )}
       </main>
 
       <PWAUpdatePrompt updateState={pwaUpdate} />

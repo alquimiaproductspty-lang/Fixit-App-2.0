@@ -178,9 +178,9 @@ service cloud.firestore {
     match /requests/{requestId} {
       // Read access:
       // - Operators & Admins can read all
-      // - Technicians can read requests assigned to them
+      // - Active Technicians (Fixers) can read assigned & available requests for Fixer View
       // - Clients can read requests they created
-      allow get: if isOperator() || (
+      allow get: if isOperator() || isTechnician() || (
         isSignedIn() && (
           resource.data.creado_por_uid == request.auth.uid ||
           resource.data.tecnico_id == request.auth.uid ||
@@ -189,7 +189,7 @@ service cloud.firestore {
       );
 
       // List query enforcement:
-      allow list: if isOperator() || (
+      allow list: if isOperator() || isTechnician() || (
         isSignedIn() && (
           resource.data.creado_por_uid == request.auth.uid ||
           resource.data.tecnico_id == request.auth.uid
@@ -209,17 +209,18 @@ service cloud.firestore {
       // Updates:
       // - Admin: can update any fields
       // - Operator: can update operational fields, quotes, technicians, notes, archive
-      // - Technician: can ONLY update execution status and notes/evidences if assigned to them
+      // - Technician: can ONLY update execution status, quote emission, and notes/evidences if assigned to them
       allow update: if (isAdmin() || isValidServiceRequest(request.resource.data)) && (
         isAdmin() ||
         (isOperator() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['creado_por_uid', 'id'])) ||
         (isTechnician() && (resource.data.tecnico_id == request.auth.uid) &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'estado', 'notas_internas', 'historial', 'updatedAt'
+            'estado', 'notas_internas', 'historial', 'cotizacion', 'total_facturado', 'updatedAt'
           ]) &&
           request.resource.data.estado in [
+            'COTIZACION', 'PENDIENTE_APROBACION',
             'ASIGNADA', 'PROGRAMADA', 'EN_PROCESO', 'COMPLETADA',
-            'Técnico asignado', 'En camino', 'En sitio / en progreso', 'Completada', 'Completado', 'Cancelada', 'Cancelado'
+            'En revisión / cotización', 'Técnico asignado', 'En camino', 'En sitio / en progreso', 'Completada', 'Completado', 'Cancelada', 'Cancelado'
           ]
         )
       );
@@ -282,9 +283,20 @@ service cloud.firestore {
     // Formal Quotes
     // =========================================================================
     match /quotes/{quoteId} {
-      allow get: if isOperator() || (isSignedIn() && resource.data.cliente_uid == request.auth.uid);
-      allow list: if isOperator() || (isSignedIn() && resource.data.cliente_uid == request.auth.uid);
-      allow write: if isOperator();
+      allow get, list: if isOperator() || isTechnician() || (isSignedIn() && resource.data.cliente_uid == request.auth.uid);
+      allow create: if isOperator() || (
+        isTechnician() &&
+        request.resource.data.keys().hasAll(['numero_cotizacion', 'cliente_nombre', 'total', 'fecha_creacion', 'estado']) &&
+        request.resource.data.total is number &&
+        request.resource.data.total >= 0
+      );
+      allow update: if isOperator() || (
+        isTechnician() && (
+          resource.data.creado_por_uid == request.auth.uid ||
+          resource.data.tecnico_id == request.auth.uid
+        )
+      );
+      allow delete: if isOperator();
     }
 
     // =========================================================================
@@ -315,9 +327,9 @@ service cloud.firestore {
     // Orders (alias / mirror of requests)
     // =========================================================================
     match /orders/{orderId} {
-      allow read: if isOperator() || (isSignedIn() && (resource.data.creado_por_uid == request.auth.uid || resource.data.cliente.id == request.auth.uid));
+      allow read: if isOperator() || isTechnician() || (isSignedIn() && (resource.data.creado_por_uid == request.auth.uid || resource.data.cliente.id == request.auth.uid));
       allow create: if true;
-      allow update: if isOperator() || (isSignedIn() && resource.data.creado_por_uid == request.auth.uid);
+      allow update: if isOperator() || (isTechnician() && resource.data.tecnico_id == request.auth.uid) || (isSignedIn() && resource.data.creado_por_uid == request.auth.uid);
       allow delete: if isAdmin();
     }
 

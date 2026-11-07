@@ -15,8 +15,8 @@ import {
 import { db, auth, AuthState } from '../lib/firebase';
 import { getNextMonthlyOrderNumber } from '../lib/orderConsecutive';
 import { FIXIT_CATALOG } from '../data/catalog';
-import { sanitizeForFirestore, updateOrderInFirestore, assignTechnicianToOrder } from '../lib/firestoreService';
-import { normalizeStatus, OFFICIAL_STATUS_DISPLAY, type OfficialRequestStatus } from '../types';
+import { sanitizeForFirestore, updateOrderInFirestore, assignTechnicianToOrder, getQuotesFromFirestore, updateQuoteInFirestore } from '../lib/firestoreService';
+import { normalizeStatus, OFFICIAL_STATUS_DISPLAY, type OfficialRequestStatus, type ManagedQuote, type QuoteStatus } from '../types';
 import { 
   Users, 
   Wrench, 
@@ -44,7 +44,8 @@ import {
   MapPin,
   Clock,
   CheckCircle2,
-  User
+  User,
+  FileText
 } from 'lucide-react';
 
 export interface AdminFixer {
@@ -106,6 +107,7 @@ export interface AdminOrder {
 interface AdminDashboardViewProps {
   authState: AuthState;
   onGoHome: () => void;
+  onOpenFixerView?: () => void;
 }
 
 export const DEFAULT_INITIAL_FIXERS: AdminFixer[] = [
@@ -166,6 +168,7 @@ const ORDER_STATUS_OPTIONS: { value: OfficialRequestStatus; label: string }[] = 
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   authState,
   onGoHome,
+  onOpenFixerView,
 }) => {
   const user = authState.user;
   const isAdmin = user?.isAdmin || user?.role === 'ADMIN';
@@ -176,22 +179,26 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   }, [authState.loading, isAdmin, onGoHome]);
 
-  // Tab State: [Resumen y KPIs] | [Pedidos] | [Clientes] | [Fixers] | [Agenda]
-  const [activeTab, setActiveTab] = useState<'kpis' | 'orders' | 'clients' | 'fixers' | 'agenda'>('kpis');
+  // Tab State: [Resumen y KPIs] | [Cotizaciones] | [Pedidos] | [Clientes] | [Fixers] | [Agenda]
+  const [activeTab, setActiveTab] = useState<'kpis' | 'quotes' | 'orders' | 'clients' | 'fixers' | 'agenda'>('kpis');
 
   const [fixerViewMode, setFixerViewMode] = useState<'cards' | 'table'>('cards');
 
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [clients, setClients] = useState<AdminUser[]>([]);
   const [fixers, setFixers] = useState<AdminFixer[]>([]);
+  const [quotes, setQuotes] = useState<ManagedQuote[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [loadingClients, setLoadingClients] = useState(true);
   const [loadingFixers, setLoadingFixers] = useState(true);
+  const [loadingQuotes, setLoadingQuotes] = useState(true);
 
   const [clientSearch, setClientSearch] = useState('');
   const [orderSearch, setOrderSearch] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('all');
   const [fixerFilter, setFixerFilter] = useState('all');
+  const [quoteSearch, setQuoteSearch] = useState('');
+  const [quoteStatusFilter, setQuoteStatusFilter] = useState('all');
 
   const [isAddFixerModalOpen, setIsAddFixerModalOpen] = useState(false);
   const [newFixerName, setNewFixerName] = useState('');
@@ -403,10 +410,42 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     };
   }, [activeTab]);
 
+  // Cargar Cotizaciones Emitidas (tiempo real + fallback a caché)
+  useEffect(() => {
+    let unsubQuotes: (() => void) | null = null;
+    try {
+      const qQuotes = query(collection(db, 'quotes'), orderBy('fecha_creacion', 'desc'));
+      unsubQuotes = onSnapshot(
+        qQuotes,
+        (snapshot) => {
+          const fetched: ManagedQuote[] = [];
+          snapshot.forEach((d) => {
+            fetched.push({ ...(d.data() as ManagedQuote), id: d.id });
+          });
+          setQuotes(fetched);
+          setLoadingQuotes(false);
+        },
+        async (err) => {
+          console.warn('[Admin] Error en listener de quotes, usando fallback:', err);
+          const fallbackQuotes = await getQuotesFromFirestore();
+          setQuotes(fallbackQuotes);
+          setLoadingQuotes(false);
+        }
+      );
+    } catch {
+      getQuotesFromFirestore()
+        .then((list) => setQuotes(list))
+        .finally(() => setLoadingQuotes(false));
+    }
+
+    return () => {
+      if (unsubQuotes) unsubQuotes();
+    };
+  }, []);
 
   const totalOrdersCount = orders.length;
 
-  const totalRevenue = useMemo(() => {
+  const totalOrdersRevenue = useMemo(() => {
     return orders.reduce((sum, ord) => {
       const estado = (ord.estado || '').toLowerCase();
       if (!estado.includes('cancel')) {
@@ -416,6 +455,91 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       return sum;
     }, 0);
   }, [orders]);
+
+  const totalQuotedRevenue = useMemo(() => {
+    return quotes.reduce((sum, q) => {
+      const st = String(q.estado || '').toLowerCase();
+      if (!st.includes('rechaz')) {
+        return sum + (Number(q.total) || 0);
+      }
+      return sum;
+    }, 0);
+  }, [quotes]);
+
+  const totalApprovedQuotesRevenue = useMemo(() => {
+    return quotes.reduce((sum, q) => {
+      const st = String(q.estado || '').toLowerCase();
+      if (st.includes('aprobad')) {
+        return sum + (Number(q.total) || 0);
+      }
+      return sum;
+    }, 0);
+  }, [quotes]);
+
+  const totalRevenue = totalOrdersRevenue;
+
+  const quotesByFixer = useMemo(() => {
+    const map = new Map<string, { nombre: string; count: number; totalUsd: number; anticiposUsd: number }>();
+    quotes.forEach((q) => {
+      const st = String(q.estado || '').toLowerCase();
+      if (st.includes('rechaz')) return;
+      const key = q.tecnico_nombre || q.creado_por || 'Fixer FIXIT';
+      const current = map.get(key) || { nombre: key, count: 0, totalUsd: 0, anticiposUsd: 0 };
+      const tot = Number(q.total) || 0;
+      current.count += 1;
+      current.totalUsd += tot;
+      current.anticiposUsd += Number(q.anticipo) || tot * 0.5;
+      map.set(key, current);
+    });
+    return Array.from(map.values()).sort((a, b) => b.totalUsd - a.totalUsd);
+  }, [quotes]);
+
+  const filteredQuotes = useMemo(() => {
+    return quotes.filter((q) => {
+      if (quoteStatusFilter !== 'all') {
+        const st = String(q.estado || '').toLowerCase();
+        if (!st.includes(quoteStatusFilter.toLowerCase())) return false;
+      }
+      if (quoteSearch.trim()) {
+        const term = quoteSearch.toLowerCase();
+        const folio = (q.numero_cotizacion || q.codigo_cotizacion || q.id || '').toLowerCase();
+        const client = (q.cliente_nombre || '').toLowerCase();
+        const svc = (q.servicio_nombre || '').toLowerCase();
+        const fixer = (q.tecnico_nombre || q.creado_por || '').toLowerCase();
+        return folio.includes(term) || client.includes(term) || svc.includes(term) || fixer.includes(term);
+      }
+      return true;
+    });
+  }, [quotes, quoteStatusFilter, quoteSearch]);
+
+  const handleUpdateQuoteStatus = async (quote: ManagedQuote, nextStatus: QuoteStatus) => {
+    try {
+      const authorName = user?.displayName || user?.nombre || user?.email || 'Admin FIXIT';
+      await updateQuoteInFirestore(
+        quote.id,
+        {
+          estado: nextStatus,
+          aprobacion: {
+            estado:
+              nextStatus === 'Aprobada'
+                ? 'aprobada'
+                : nextStatus === 'Rechazada'
+                ? 'rechazada'
+                : 'pendiente',
+            fecha: new Date().toISOString(),
+            validado_por: authorName,
+          },
+        },
+        authorName
+      );
+      setQuotes((prev) =>
+        prev.map((q) => (q.id === quote.id ? { ...q, estado: nextStatus } : q))
+      );
+      showToast(`Cotización ${quote.numero_cotizacion} marcada como ${nextStatus}.`, 'info');
+    } catch (err: any) {
+      showToast(`Error actualizando cotización: ${err?.message || 'Error'}`, 'error');
+    }
+  };
 
   const totalClientsCount = clients.length;
   const totalFixersCount = fixers.length;
@@ -1012,13 +1136,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={onGoHome}
-            className="py-2.5 px-4 rounded-xl border border-[#DED4C5] bg-[#FFFEFA] hover:bg-[#F6F4EF] text-xs font-semibold text-[#1F2421] transition-colors cursor-pointer"
-          >
-            Ver App Cliente
-          </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {onOpenFixerView && (
+            <button
+              onClick={onOpenFixerView}
+              className="py-2.5 px-4 rounded-xl border border-[#0B72D9]/30 bg-[#0B72D9]/10 hover:bg-[#0B72D9]/20 text-xs font-bold text-[#082D60] flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <FileText className="w-4 h-4 text-[#0B72D9]" />
+              <span>Vista Fixer / Cotizador PDF</span>
+            </button>
+          )}
           <button
             onClick={() => setIsCreateOrderModalOpen(true)}
             className="py-2.5 px-4 rounded-xl bg-[#082D60] hover:bg-[#062248] text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
@@ -1037,7 +1164,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       </header>
 
       {/* TARJETAS DE MÉTRICAS */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[#756A5D]">Órdenes Totales</span>
@@ -1059,7 +1186,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#756A5D]">Facturación Total</span>
+            <span className="text-xs font-semibold text-[#756A5D]">Facturación Pedidos</span>
             <div className="w-8 h-8 rounded-xl bg-[#53653D]/10 text-[#53653D] flex items-center justify-center">
               <DollarSign className="w-4 h-4" />
             </div>
@@ -1071,6 +1198,27 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             <span className="text-xs font-semibold text-[#756A5D]">USD</span>
           </div>
           <p className="text-[11px] text-[#756A5D]">Ingresos de órdenes no canceladas</p>
+        </div>
+
+        <div
+          onClick={() => setActiveTab('quotes')}
+          className="bg-[#FFFEFA] border border-[#0B72D9]/40 hover:border-[#0B72D9] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2 cursor-pointer transition-all"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[#082D60]">Cotizado por Fixers</span>
+            <div className="w-8 h-8 rounded-xl bg-[#082D60]/10 text-[#082D60] flex items-center justify-center">
+              <FileText className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="font-serif font-bold text-2xl sm:text-3xl text-[#082D60]">
+              {loadingQuotes ? '...' : `$${totalQuotedRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            </span>
+            <span className="text-xs font-semibold text-[#756A5D]">USD</span>
+          </div>
+          <p className="text-[11px] text-[#0B72D9] font-semibold">
+            {quotes.length} cotizaciones • Anticipos 50%: ${(totalQuotedRevenue * 0.5).toFixed(2)}
+          </p>
         </div>
 
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
@@ -1089,7 +1237,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           <p className="text-[11px] text-[#756A5D]">Colección 'users' (clientes)</p>
         </div>
 
-        <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
+        <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2 col-span-2 lg:col-span-1">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[#756A5D]">Total Fixers</span>
             <div className="w-8 h-8 rounded-xl bg-[#B98A43]/10 text-[#B98A43] flex items-center justify-center">
@@ -1116,6 +1264,15 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         >
           <TrendingUp className="w-4 h-4" />
           <span>Resumen y KPIs</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('quotes')}
+          className={`flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+            activeTab === 'quotes' ? 'bg-[#082D60] text-white shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>Cotizaciones e Ingresos ({quotes.length})</span>
         </button>
         <button
           onClick={() => setActiveTab('agenda')}
@@ -1251,6 +1408,60 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Resumen de Cotizaciones Emitidas por Fixer */}
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-5 shadow-2xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="font-serif font-bold text-base text-[#1F2421] flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-[#0B72D9]" />
+                  <span>Ingresos y Cotizaciones Emitidas por Fixer</span>
+                </h3>
+                <p className="text-[11px] text-[#756A5D]">
+                  Consolidado en tiempo real de la colección <code>quotes</code> (Cotizador Oficial 1:1).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('quotes')}
+                className="py-1.5 px-3 rounded-xl bg-[#082D60]/10 hover:bg-[#082D60]/15 text-[#082D60] font-bold text-xs transition-colors cursor-pointer self-start sm:self-auto"
+              >
+                Ver todas las cotizaciones ({quotes.length}) →
+              </button>
+            </div>
+
+            {quotesByFixer.length === 0 ? (
+              <p className="py-4 text-center text-xs text-[#756A5D]">
+                Aún no se han emitido cotizaciones desde la Vista Fixer.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {quotesByFixer.map((row) => (
+                  <div
+                    key={row.fixer}
+                    className="p-3.5 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5]/70 flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-bold text-xs text-[#1F2421] truncate block">
+                        {row.fixer}
+                      </span>
+                      <span className="text-[11px] text-[#756A5D]">
+                        {row.count} {row.count === 1 ? 'cotización emitida' : 'cotizaciones emitidas'}
+                      </span>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="font-serif font-bold text-sm text-[#082D60] block">
+                        ${row.total.toFixed(2)}
+                      </span>
+                      <span className="text-[10px] font-bold text-[#53653D]">
+                        Aprob: ${row.approvedTotal.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1638,6 +1849,251 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB 4: COTIZACIONES E INGRESOS (COLECCIÓN QUOTES)              */}
+      {/* ============================================================== */}
+      {activeTab === 'quotes' && (
+        <div className="space-y-4">
+          {/* Resumen financiero de cotizaciones */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-4 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#756A5D] block">
+                Volumen Total Cotizado
+              </span>
+              <span className="font-serif font-bold text-2xl text-[#082D60] mt-1 block">
+                ${totalQuotedRevenue.toFixed(2)} USD
+              </span>
+              <span className="text-[11px] text-[#756A5D] mt-0.5 block">
+                {quotes.length} {quotes.length === 1 ? 'cotización emitida' : 'cotizaciones emitidas'}
+              </span>
+            </div>
+
+            <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-4 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#756A5D] block">
+                Anticipos 50% Requeridos
+              </span>
+              <span className="font-serif font-bold text-2xl text-[#0B72D9] mt-1 block">
+                ${(totalQuotedRevenue * 0.5).toFixed(2)} USD
+              </span>
+              <span className="text-[11px] text-[#756A5D] mt-0.5 block">
+                Política oficial para agendar e iniciar
+              </span>
+            </div>
+
+            <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-4 shadow-2xs">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#756A5D] block">
+                Cotizaciones Aprobadas
+              </span>
+              <span className="font-serif font-bold text-2xl text-[#53653D] mt-1 block">
+                ${totalApprovedQuotesRevenue.toFixed(2)} USD
+              </span>
+              <span className="text-[11px] text-[#53653D] font-semibold mt-0.5 block">
+                {quotes.filter((q) => q.estado === 'Aprobada').length} aprobadas
+              </span>
+            </div>
+          </div>
+
+          {/* Desglose por Fixer */}
+          {quotesByFixer.length > 0 && (
+            <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-4 shadow-2xs space-y-2.5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[#082D60]">
+                Rendimiento de Cotización por Fixer / Emisor
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                {quotesByFixer.map((row) => (
+                  <div
+                    key={row.fixer}
+                    className="p-3 rounded-xl bg-[#F6F4EF] border border-[#DED4C5]/70 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-bold text-xs text-[#1F2421] truncate block">
+                        {row.fixer}
+                      </span>
+                      <span className="text-[10px] text-[#756A5D]">
+                        {row.count} {row.count === 1 ? 'folio' : 'folios'}
+                      </span>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="font-bold text-xs text-[#082D60] block">
+                        ${row.total.toFixed(2)}
+                      </span>
+                      <span className="text-[10px] font-semibold text-[#53653D]">
+                        Aprob: ${row.approvedTotal.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Barra de búsqueda y filtro de estado */}
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-[#756A5D] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar por folio FIXIT-YYYY-MM-###, cliente, teléfono, fixer o pedido..."
+                value={quoteSearch}
+                onChange={(e) => setQuoteSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] text-xs text-[#1F2421] focus:outline-hidden focus:border-[#0B72D9]"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <select
+                value={quoteStatusFilter}
+                onChange={(e) => setQuoteStatusFilter(e.target.value)}
+                className="py-2 px-3 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] text-xs font-semibold text-[#1F2421]"
+              >
+                <option value="Todos">Todos los estados</option>
+                <option value="Enviada">Enviada</option>
+                <option value="Aprobada">Aprobada</option>
+                <option value="Rechazada">Rechazada</option>
+              </select>
+
+              {onOpenFixerView && (
+                <button
+                  type="button"
+                  onClick={onOpenFixerView}
+                  className="py-2 px-3.5 rounded-xl bg-[#0B72D9] hover:bg-[#0962BC] text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Nueva Cotización</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Tabla de cotizaciones emitidas */}
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#F6F4EF] border-b border-[#DED4C5] text-[10px] font-bold uppercase tracking-wider text-[#756A5D]">
+                    <th className="py-3.5 px-4">Folio / Fecha</th>
+                    <th className="py-3.5 px-4">Cliente & Ubicación</th>
+                    <th className="py-3.5 px-4">Pedido</th>
+                    <th className="py-3.5 px-4">Fixer / Emisor</th>
+                    <th className="py-3.5 px-4">Conceptos</th>
+                    <th className="py-3.5 px-4">Total / Anticipo 50%</th>
+                    <th className="py-3.5 px-4">Estado</th>
+                    <th className="py-3.5 px-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#DED4C5]/60 text-xs">
+                  {filteredQuotes.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-[#756A5D]">
+                        No hay cotizaciones registradas con este filtro.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredQuotes.map((quote) => {
+                      const anticipo = quote.anticipo ?? Number(quote.total || 0) * 0.5;
+                      const cleanPhone = (quote.cliente_telefono || '').replace(/\D/g, '');
+                      const waPhone = cleanPhone
+                        ? cleanPhone.startsWith('507')
+                          ? cleanPhone
+                          : `507${cleanPhone}`
+                        : '';
+
+                      return (
+                        <tr key={quote.id} className="hover:bg-[#F6F4EF]/60 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <span className="font-mono font-bold text-[#082D60] block">
+                              {quote.numero_cotizacion}
+                            </span>
+                            <span className="text-[11px] text-[#756A5D]">
+                              {quote.fecha_emision}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-[#1F2421]">
+                              {quote.cliente_nombre || 'Consumidor Final'}
+                            </div>
+                            <div className="text-[11px] text-[#756A5D]">
+                              {quote.cliente_telefono || '—'}
+                              {quote.cliente_ubicacion ? ` · ${quote.cliente_ubicacion}` : ''}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {quote.solicitud_codigo ? (
+                              <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-[#082D60]/10 text-[#082D60]">
+                                {quote.solicitud_codigo}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-[#756A5D]">Directa</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="font-semibold text-[#1F2421] block">
+                              {quote.tecnico_nombre || quote.creado_por || 'Fixer FIXIT'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 max-w-[220px]">
+                            <span className="text-[11px] text-[#1F2421] font-medium block truncate">
+                              {quote.items?.map((i) => i.concepto).join(', ') || 'Servicios varios'}
+                            </span>
+                            <span className="text-[10px] text-[#756A5D]">
+                              {quote.items?.length || 0} {(quote.items?.length || 0) === 1 ? 'ítem' : 'ítems'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="font-serif font-bold text-sm text-[#1F2421] block">
+                              ${Number(quote.total || 0).toFixed(2)} USD
+                            </span>
+                            <span className="text-[10px] font-bold text-[#0B72D9]">
+                              50%: ${Number(anticipo).toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <select
+                              value={quote.estado || 'Enviada'}
+                              onChange={(e) =>
+                                handleUpdateQuoteStatus(quote, e.target.value as QuoteStatus)
+                              }
+                              className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${
+                                quote.estado === 'Aprobada'
+                                  ? 'bg-[#53653D]/15 text-[#53653D] border-[#53653D]/30'
+                                  : quote.estado === 'Rechazada'
+                                  ? 'bg-rose-100 text-rose-700 border-rose-200'
+                                  : 'bg-[#0B72D9]/10 text-[#0B72D9] border-[#0B72D9]/30'
+                              }`}
+                            >
+                              <option value="Enviada">Enviada</option>
+                              <option value="Aprobada">Aprobada</option>
+                              <option value="Rechazada">Rechazada</option>
+                            </select>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            {waPhone ? (
+                              <a
+                                href={`https://wa.me/${waPhone}?text=${encodeURIComponent(
+                                  `Hola ${quote.cliente_nombre || ''}, le escribimos de FIXIT Panamá respecto a su cotización ${quote.numero_cotizacion} por $${Number(quote.total || 0).toFixed(2)} USD.`
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] font-bold text-[11px] transition-colors"
+                              >
+                                <Phone className="w-3 h-3" />
+                                <span>WhatsApp</span>
+                              </a>
+                            ) : (
+                              <span className="text-[11px] text-[#756A5D]">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

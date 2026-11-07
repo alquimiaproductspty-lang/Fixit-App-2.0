@@ -198,16 +198,26 @@ export interface ManagedQuote {
   solicitud_codigo: string;
   cliente_nombre: string;
   cliente_telefono: string;
+  cliente_ubicacion?: string;
   servicio_nombre?: string;
   mano_de_obra: number;
   materiales: number;
   cargos_adicionales: number;
   subtotal?: number;
+  subtotal_bruto?: number;
+  subtotal_neto?: number;
   itbms?: number;
+  apply_itbms?: boolean;
   descuento: number;
+  descuento_tipo?: 'percent' | 'fixed';
+  descuento_valor?: number;
   total: number;
+  anticipo?: number;
   items?: QuoteItem[];
   cliente_uid?: string;
+  tecnico_id?: string;
+  tecnico_nombre?: string;
+  creado_por_uid?: string;
   diagnostico?: {
     evaluacion_preliminar?: string;
     costo_visita_acreditable?: number;
