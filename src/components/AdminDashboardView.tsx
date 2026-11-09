@@ -479,16 +479,28 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const totalRevenue = totalOrdersRevenue;
 
   const quotesByFixer = useMemo(() => {
-    const map = new Map<string, { nombre: string; count: number; totalUsd: number; anticiposUsd: number }>();
+    const map = new Map<
+      string,
+      { nombre: string; count: number; totalUsd: number; anticiposUsd: number; approvedUsd: number }
+    >();
     quotes.forEach((q) => {
       const st = String(q.estado || '').toLowerCase();
       if (st.includes('rechaz')) return;
       const key = q.tecnico_nombre || q.creado_por || 'Fixer FIXIT';
-      const current = map.get(key) || { nombre: key, count: 0, totalUsd: 0, anticiposUsd: 0 };
+      const current = map.get(key) || {
+        nombre: key,
+        count: 0,
+        totalUsd: 0,
+        anticiposUsd: 0,
+        approvedUsd: 0,
+      };
       const tot = Number(q.total) || 0;
       current.count += 1;
       current.totalUsd += tot;
       current.anticiposUsd += Number(q.anticipo) || tot * 0.5;
+      if (st.includes('aprobad')) {
+        current.approvedUsd += tot;
+      }
       map.set(key, current);
     });
     return Array.from(map.values()).sort((a, b) => b.totalUsd - a.totalUsd);
@@ -1439,12 +1451,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {quotesByFixer.map((row) => (
                   <div
-                    key={row.fixer}
+                    key={row.nombre}
                     className="p-3.5 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5]/70 flex items-center justify-between gap-3"
                   >
                     <div className="min-w-0">
                       <span className="font-bold text-xs text-[#1F2421] truncate block">
-                        {row.fixer}
+                        {row.nombre}
                       </span>
                       <span className="text-[11px] text-[#756A5D]">
                         {row.count} {row.count === 1 ? 'cotización emitida' : 'cotizaciones emitidas'}
@@ -1452,10 +1464,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     </div>
                     <div className="text-right shrink-0">
                       <span className="font-serif font-bold text-sm text-[#082D60] block">
-                        ${row.total.toFixed(2)}
+                        ${row.totalUsd.toFixed(2)}
                       </span>
                       <span className="text-[10px] font-bold text-[#53653D]">
-                        Aprob: ${row.approvedTotal.toFixed(2)}
+                        Aprob: ${row.approvedUsd.toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -1906,12 +1918,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 {quotesByFixer.map((row) => (
                   <div
-                    key={row.fixer}
+                    key={row.nombre}
                     className="p-3 rounded-xl bg-[#F6F4EF] border border-[#DED4C5]/70 flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0">
                       <span className="font-bold text-xs text-[#1F2421] truncate block">
-                        {row.fixer}
+                        {row.nombre}
                       </span>
                       <span className="text-[10px] text-[#756A5D]">
                         {row.count} {row.count === 1 ? 'folio' : 'folios'}
@@ -1919,10 +1931,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     </div>
                     <div className="text-right shrink-0">
                       <span className="font-bold text-xs text-[#082D60] block">
-                        ${row.total.toFixed(2)}
+                        ${row.totalUsd.toFixed(2)}
                       </span>
                       <span className="text-[10px] font-semibold text-[#53653D]">
-                        Aprob: ${row.approvedTotal.toFixed(2)}
+                        Aprob: ${row.approvedUsd.toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -1950,10 +1962,14 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 onChange={(e) => setQuoteStatusFilter(e.target.value)}
                 className="py-2 px-3 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] text-xs font-semibold text-[#1F2421]"
               >
-                <option value="Todos">Todos los estados</option>
+                <option value="all">Todos los estados</option>
+                <option value="Borrador">Borrador</option>
+                <option value="En preparación">En preparación</option>
                 <option value="Enviada">Enviada</option>
+                <option value="Pendiente de aprobación">Pendiente de aprobación</option>
                 <option value="Aprobada">Aprobada</option>
                 <option value="Rechazada">Rechazada</option>
+                <option value="Vencida">Vencida</option>
               </select>
 
               {onOpenFixerView && (
@@ -2037,7 +2053,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                           </td>
                           <td className="py-3.5 px-4 max-w-[220px]">
                             <span className="text-[11px] text-[#1F2421] font-medium block truncate">
-                              {quote.items?.map((i) => i.concepto).join(', ') || 'Servicios varios'}
+                              {quote.items?.map((i) => i.descripcion).join(', ') || 'Servicios varios'}
                             </span>
                             <span className="text-[10px] text-[#756A5D]">
                               {quote.items?.length || 0} {(quote.items?.length || 0) === 1 ? 'ítem' : 'ítems'}
@@ -2052,23 +2068,48 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                             </span>
                           </td>
                           <td className="py-3.5 px-4">
-                            <select
-                              value={quote.estado || 'Enviada'}
-                              onChange={(e) =>
-                                handleUpdateQuoteStatus(quote, e.target.value as QuoteStatus)
-                              }
-                              className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${
-                                quote.estado === 'Aprobada'
-                                  ? 'bg-[#53653D]/15 text-[#53653D] border-[#53653D]/30'
-                                  : quote.estado === 'Rechazada'
-                                  ? 'bg-rose-100 text-rose-700 border-rose-200'
-                                  : 'bg-[#0B72D9]/10 text-[#0B72D9] border-[#0B72D9]/30'
-                              }`}
-                            >
-                              <option value="Enviada">Enviada</option>
-                              <option value="Aprobada">Aprobada</option>
-                              <option value="Rechazada">Rechazada</option>
-                            </select>
+                            {(() => {
+                              const rawStatus = String(quote.estado || '').toLowerCase();
+                              const normalizedQuoteStatus: QuoteStatus = rawStatus.includes('aprobad')
+                                ? 'Aprobada'
+                                : rawStatus.includes('rechaz')
+                                ? 'Rechazada'
+                                : rawStatus.includes('borrador')
+                                ? 'Borrador'
+                                : rawStatus.includes('preparaci')
+                                ? 'En preparación'
+                                : rawStatus.includes('pendiente')
+                                ? 'Pendiente de aprobación'
+                                : rawStatus.includes('vencid')
+                                ? 'Vencida'
+                                : 'Enviada';
+
+                              return (
+                                <select
+                                  value={normalizedQuoteStatus}
+                                  onChange={(e) =>
+                                    handleUpdateQuoteStatus(quote, e.target.value as QuoteStatus)
+                                  }
+                                  className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border cursor-pointer ${
+                                    normalizedQuoteStatus === 'Aprobada'
+                                      ? 'bg-[#53653D]/15 text-[#53653D] border-[#53653D]/30'
+                                      : normalizedQuoteStatus === 'Rechazada' || normalizedQuoteStatus === 'Vencida'
+                                      ? 'bg-rose-100 text-rose-700 border-rose-200'
+                                      : normalizedQuoteStatus === 'Borrador' || normalizedQuoteStatus === 'En preparación'
+                                      ? 'bg-amber-100 text-amber-800 border-amber-200'
+                                      : 'bg-[#0B72D9]/10 text-[#0B72D9] border-[#0B72D9]/30'
+                                  }`}
+                                >
+                                  <option value="Borrador">Borrador</option>
+                                  <option value="En preparación">En preparación</option>
+                                  <option value="Enviada">Enviada</option>
+                                  <option value="Pendiente de aprobación">Pendiente de aprobación</option>
+                                  <option value="Aprobada">Aprobada</option>
+                                  <option value="Rechazada">Rechazada</option>
+                                  <option value="Vencida">Vencida</option>
+                                </select>
+                              );
+                            })()}
                           </td>
                           <td className="py-3.5 px-4 text-right">
                             {waPhone ? (

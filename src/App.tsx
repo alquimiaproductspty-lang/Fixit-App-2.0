@@ -1,14 +1,79 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { authService, AuthState } from './lib/firebase';
 import { AuthLoginScreen } from './components/auth/AuthLoginScreen';
 import { AdminDashboardView } from './components/AdminDashboardView';
 import { FixerDashboardView } from './components/FixerDashboardView';
 import { FixitLogo } from './components/FixitLogo';
-import { Shield, ShieldCheck, LogOut, Loader2, Lock, Wrench, LayoutDashboard } from 'lucide-react';
+import { Shield, ShieldCheck, LogOut, Loader2, Lock, Wrench, LayoutDashboard, AlertTriangle, RefreshCw } from 'lucide-react';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
 import { usePWAUpdate } from './hooks/usePWAUpdate';
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  errorMessage: string;
+}
+
+class ConsoleErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  declare state: ErrorBoundaryState;
+  declare props: Readonly<ErrorBoundaryProps>;
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, errorMessage: '' };
+  }
+
+  static getDerivedStateFromError(error: unknown): ErrorBoundaryState {
+    const message = error instanceof Error ? error.message : String(error);
+    return { hasError: true, errorMessage: message };
+  }
+
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    console.error('[FIXIT Console ErrorBoundary] Error de renderizado capturado:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="max-w-xl mx-auto my-12 p-6 sm:p-8 bg-[#FFFEFA] border border-rose-200 rounded-3xl shadow-md text-center space-y-4 font-sans">
+          <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="font-serif font-bold text-xl text-[#1F2421]">
+              Ocurrió un problema al cargar la vista
+            </h2>
+            <p className="text-xs text-[#756A5D]">
+              Se interceptó un error inesperado para evitar el cierre de la consola.
+            </p>
+            {this.state.errorMessage && (
+              <pre className="mt-2 p-3 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] text-[11px] font-mono text-rose-700 overflow-x-auto text-left">
+                {this.state.errorMessage}
+              </pre>
+            )}
+          </div>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="py-2.5 px-4 rounded-xl bg-[#082D60] hover:bg-[#07244D] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Recargar Consola</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 /**
  * FIXIT App - Internal Operations Console & CRM Architecture
@@ -25,7 +90,9 @@ export default function App() {
     const unsub = authService.subscribe((state) => {
       setAuthState(state);
     });
-    return () => unsub();
+    return () => {
+      unsub();
+    };
   }, []);
 
   // Eliminar sesiones anónimas heredadas del flujo público
@@ -217,17 +284,19 @@ export default function App() {
 
       {/* Main Internal Console Dashboard */}
       <main className="flex-1 pb-12">
-        {showFixerView ? (
-          <FixerDashboardView authState={authState} />
-        ) : (
-          <AdminDashboardView
-            authState={authState}
-            onGoHome={() => {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            onOpenFixerView={() => setAdminViewMode('fixer')}
-          />
-        )}
+        <ConsoleErrorBoundary>
+          {showFixerView ? (
+            <FixerDashboardView authState={authState} />
+          ) : (
+            <AdminDashboardView
+              authState={authState}
+              onGoHome={() => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onOpenFixerView={() => setAdminViewMode('fixer')}
+            />
+          )}
+        </ConsoleErrorBoundary>
       </main>
 
       <PWAUpdatePrompt updateState={pwaUpdate} />

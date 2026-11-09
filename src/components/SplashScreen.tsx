@@ -74,7 +74,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
           transition: {
             duration: 0.88,
             times: [0, 0.52, 0.78, 1],
-            ease: [0.16, 1, 0.3, 1], // Natural, elegant ease-out
+            ease: [0.16, 1, 0.3, 1] as [number, number, number, number], // Natural, elegant ease-out
           },
         },
       };
