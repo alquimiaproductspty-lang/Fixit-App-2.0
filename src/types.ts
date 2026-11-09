@@ -213,6 +213,8 @@ export interface ManagedQuote {
   codigo_cotizacion?: string;
   solicitud_id: string;
   solicitud_codigo: string;
+  pedido_id?: string;
+  pedido_numero?: string;
   cliente_nombre: string;
   cliente_telefono: string;
   cliente_ubicacion?: string;

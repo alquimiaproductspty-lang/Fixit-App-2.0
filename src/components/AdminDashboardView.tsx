@@ -69,6 +69,7 @@ import {
   MessageCircle, 
   Share2,
   Copy,
+  ArrowRightCircle,
   KeyRound,
   Award,
   CreditCard,
@@ -473,6 +474,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [isActionInProgress, setIsActionInProgress] = useState(false);
 
   const [orderToAssign, setOrderToAssign] = useState<AdminOrder | null>(null);
+  const [convertingQuoteId, setConvertingQuoteId] = useState<string | null>(null);
   const [assignFixerId, setAssignFixerId] = useState('');
   const [assignScheduledDate, setAssignScheduledDate] = useState('');
   const [assignNotes, setAssignNotes] = useState('');
@@ -1914,6 +1916,136 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       const nextPrice =
         applyPromo && typeof s.promo_price_usd === 'number' ? s.promo_price_usd : s.price;
       setManualAmount(String(nextPrice));
+    }
+  };
+
+  const handleConvertQuoteToOrder = async (quote: ManagedQuote) => {
+    if (convertingQuoteId) return;
+    if (quote.pedido_id) {
+      showToast('Esta cotización ya tiene un pedido generado.', 'info');
+      return;
+    }
+    const linkedOrderId =
+      quote.solicitud_id && quote.solicitud_id !== 'COTIZACION_DIRECTA' ? quote.solicitud_id : null;
+    if (linkedOrderId && orders.some((o) => o.id === linkedOrderId)) {
+      showToast('Esta cotización ya nació de un pedido existente.', 'info');
+      return;
+    }
+    if (!String(quote.estado || '').toLowerCase().includes('aprobad')) {
+      showToast('Solo las cotizaciones aprobadas pueden pasarse a pedido.', 'error');
+      return;
+    }
+
+    setConvertingQuoteId(quote.id);
+    try {
+      const authorName = user?.displayName || user?.nombre || user?.email || 'Operador FIXIT';
+      const currentUid = auth.currentUser?.uid || user?.uid || 'admin_manual';
+      const monthlyConsecutive = await getNextMonthlyOrderNumber();
+      const orderDocId = `REQ-${Date.now().toString().slice(-6)}`;
+      const nowIso = new Date().toISOString();
+
+      const total = round2(Number(quote.total || 0));
+      const firstItem = (quote.items || []).find((i) => (i.descripcion || '').trim());
+      const serviceName =
+        (quote.servicio_nombre || '').trim() || firstItem?.descripcion?.trim() || 'Servicio cotizado';
+      const clientName = (quote.cliente_nombre || '').trim() || 'Consumidor Final';
+      const clientPhone = (quote.cliente_telefono || '').trim();
+      const address = (quote.cliente_ubicacion || '').trim() || 'Dirección por confirmar';
+      const materials = round2(Number(quote.materiales || 0));
+      const laborBase = Math.max(0, round2(total - materials));
+      const comision =
+        typeof quote.comision_fixit === 'number' ? round2(quote.comision_fixit) : calcCommission(laborBase, commissionRate);
+      const costoTec =
+        typeof quote.costo_tecnico === 'number' ? round2(quote.costo_tecnico) : calcNet(laborBase, commissionRate);
+
+      const orderPayload: Record<string, any> = {
+        id: orderDocId,
+        numero_pedido: monthlyConsecutive,
+        consecutiveId: monthlyConsecutive,
+        orderNumber: monthlyConsecutive,
+        codigo_seguimiento: monthlyConsecutive,
+        creado_por_uid: quote.cliente_uid || currentUid,
+        cliente: {
+          id: quote.cliente_uid || currentUid,
+          nombre: clientName,
+          telefono: clientPhone,
+        },
+        servicio_probable: {
+          id: 'COTIZACION',
+          service_name: serviceName,
+          category: 'Servicio cotizado',
+          price: total,
+        },
+        direccion: address,
+        fecha: nowIso,
+        horario_preferido: 'Hoy',
+        precio_regular: total,
+        total_facturado: total,
+        cotizacion: total,
+        costo_materiales: materials > 0 ? materials : undefined,
+        comision_fixit: comision,
+        costo_tecnico: costoTec,
+        upsells_total: quote.upsells_total ?? undefined,
+        upsells_costo_mayorista: quote.upsells_costo_mayorista ?? undefined,
+        upsells_bono_fixer: quote.upsells_bono_fixer ?? undefined,
+        upsells_neto_fixit: quote.upsells_neto_fixit ?? undefined,
+        estado: 'APROBADA',
+        origen: 'COTIZACION_APROBADA',
+        cotizacion_id: quote.id,
+        cotizacion_numero: quote.numero_cotizacion,
+        tipo_propiedad: 'Residencial',
+        notas_internas: [
+          `Generado desde cotización ${quote.numero_cotizacion} ($${total.toFixed(2)}).`,
+          !clientPhone ? 'Completar teléfono del cliente.' : '',
+          address === 'Dirección por confirmar' ? 'Confirmar dirección del servicio.' : '',
+        ].filter(Boolean).join(' '),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const cleanPayload = sanitizeForFirestore(orderPayload);
+      await setDoc(doc(db, 'requests', orderDocId), cleanPayload);
+      try {
+        await setDoc(doc(db, 'orders', orderDocId), cleanPayload);
+      } catch {}
+
+      await updateQuoteInFirestore(
+        quote.id,
+        {
+          pedido_id: orderDocId,
+          pedido_numero: monthlyConsecutive,
+          historial: [
+            ...(quote.historial || []),
+            {
+              fecha: nowIso,
+              accion: `Pedido ${monthlyConsecutive} generado desde cotización aprobada`,
+              usuario: authorName,
+            },
+          ],
+        },
+        authorName
+      );
+      setQuotes((prev) =>
+        prev.map((q) => (q.id === quote.id ? { ...q, pedido_id: orderDocId, pedido_numero: monthlyConsecutive } : q))
+      );
+
+      showToast(`¡Pedido ${monthlyConsecutive} creado desde cotización! Asigna el técnico.`, 'success');
+      openAssignModal({
+        id: orderDocId,
+        numero_pedido: monthlyConsecutive,
+        consecutiveId: monthlyConsecutive,
+        orderNumber: monthlyConsecutive,
+        codigo_seguimiento: monthlyConsecutive,
+        cliente: { nombre: clientName, telefono: clientPhone },
+        servicio_probable: { id: 'COTIZACION', service_name: serviceName },
+        direccion: address,
+        estado: 'APROBADA',
+      });
+    } catch (err: any) {
+      console.error('Error convirtiendo cotización a pedido:', err);
+      showToast(`Error al crear pedido: ${err?.message || 'Error'}`, 'error');
+    } finally {
+      setConvertingQuoteId(null);
     }
   };
 
@@ -3827,6 +3959,44 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                                   <span>Registrar pago</span>
                                 </button>
                               )}
+                              {(() => {
+                                const qApproved = String(quote.estado || '').toLowerCase().includes('aprobad');
+                                const originOrder =
+                                  quote.solicitud_id && quote.solicitud_id !== 'COTIZACION_DIRECTA'
+                                    ? orders.find((o) => o.id === quote.solicitud_id)
+                                    : undefined;
+                                const linkedNumero =
+                                  quote.pedido_numero ||
+                                  originOrder?.numero_pedido ||
+                                  originOrder?.consecutiveId ||
+                                  quote.solicitud_codigo;
+                                if (quote.pedido_id || originOrder) {
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveTab('orders')}
+                                      title="Ver pedido en la pestaña Pedidos"
+                                      className="py-1.5 px-2.5 rounded-lg bg-[#082D60]/10 hover:bg-[#082D60]/15 text-[#082D60] font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                                    >
+                                      <Package className="w-3 h-3" />
+                                      <span>Pedido {linkedNumero || ''}</span>
+                                    </button>
+                                  );
+                                }
+                                if (!qApproved) return null;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConvertQuoteToOrder(quote)}
+                                    disabled={convertingQuoteId === quote.id}
+                                    title="Crear pedido desde esta cotización aprobada y asignar técnico"
+                                    className="py-1.5 px-2.5 rounded-lg bg-[#082D60] hover:bg-[#062248] text-white font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                                  >
+                                    <ArrowRightCircle className="w-3 h-3" />
+                                    <span>{convertingQuoteId === quote.id ? 'Creando...' : 'Pasar a pedido'}</span>
+                                  </button>
+                                );
+                              })()}
                               {isAdmin && (
                                 <button
                                   type="button"
