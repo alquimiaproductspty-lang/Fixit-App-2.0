@@ -567,6 +567,10 @@ export interface Technician {
   nombre: string;
   telefono: string;
   correo?: string;
+  cedula?: string;
+  idoneidad_tipo?: string;
+  idoneidad_numero?: string;
+  photoURL?: string;
   disponibilidad?: TechnicianAvailability;
   activo: boolean;
   especialidad: ServiceCategory | 'Ambas' | string;

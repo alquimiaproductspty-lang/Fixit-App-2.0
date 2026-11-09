@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   collection,
   query,
@@ -10,6 +10,11 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import { db, AuthState } from '../lib/firebase';
+import {
+  isSoundEnabled,
+  setSoundEnabled,
+  playNewOrderSound,
+} from '../lib/soundAlert';
 import {
   getServicesFromFirestore,
   getQuotesFromFirestore,
@@ -48,6 +53,9 @@ import {
   Wrench,
   ShieldCheck,
   RefreshCw,
+  Volume2,
+  VolumeX,
+  BellRing,
 } from 'lucide-react';
 
 interface FixerOrder {
@@ -129,6 +137,25 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
   // Quotes emitted
   const [quotes, setQuotes] = useState<ManagedQuote[]>([]);
 
+  // Sound Alert State & Known Assigned Order IDs Ref (Uber-style foreground alert)
+  const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
+  const [directoryResolved, setDirectoryResolved] = useState<boolean>(false);
+  const knownAssignedIdsRef = useRef<Set<string> | null>(null);
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    setSoundEnabledState(next);
+  };
+
+  const handleTestSound = () => {
+    if (!soundEnabled) {
+      setSoundEnabled(true);
+      setSoundEnabledState(true);
+    }
+    playNewOrderSound('fixer');
+  };
+
   // Painting Calculator state (combines PinturaService m² + wall dimension helper + extras)
   const [paintAreaType, setPaintAreaType] = useState<'interior' | 'exterior'>('interior');
   const [paintM2Input, setPaintM2Input] = useState<string>('35');
@@ -177,6 +204,7 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
 
       if (!cancelled) {
         setMatchedFixerIds(Array.from(ids));
+        setDirectoryResolved(true);
       }
     }
     resolveFixerDirectoryId();
@@ -244,6 +272,32 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
     }
     return false;
   };
+
+  // Detectar NUEVAS asignaciones mías (inicializado en primera carga SIN sonar; no suena por cambios de estado)
+  useEffect(() => {
+    if (loadingOrders || !directoryResolved) return;
+
+    const currentAssignedIds = orders
+      .filter((ord) => isOrderAssignedToMe(ord))
+      .map((ord) => ord.id);
+
+    if (knownAssignedIdsRef.current === null) {
+      knownAssignedIdsRef.current = new Set(currentAssignedIds);
+      return;
+    }
+
+    let hasNewAssignment = false;
+    for (const id of currentAssignedIds) {
+      if (!knownAssignedIdsRef.current.has(id)) {
+        knownAssignedIdsRef.current.add(id);
+        hasNewAssignment = true;
+      }
+    }
+
+    if (hasNewAssignment) {
+      playNewOrderSound('fixer');
+    }
+  }, [orders, loadingOrders, directoryResolved, matchedFixerIds]);
 
   const isOrderAvailable = (ord: FixerOrder): boolean => {
     const st = normalizeStatus(ord.estado);
@@ -490,6 +544,58 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
     <div className="max-w-6xl mx-auto py-5 px-3 sm:px-6 space-y-5">
       {/* Resumen Operativo del Fixer y Navegación Principal (Oculto al imprimir/exportar PDF) */}
       <div className="space-y-4 q-no-print fixer-nav-chrome">
+        {/* Cabecera de Alerta Sonora en Tiempo Real (Estilo Uber) */}
+        <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-3 sm:px-4 flex flex-wrap items-center justify-between gap-2.5 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#53653D] animate-pulse shrink-0" />
+            <span className="text-xs font-bold text-[#1F2421]">
+              Recepción en vivo de asignaciones
+            </span>
+            <span className="hidden sm:inline text-[11px] text-[#756A5D]">
+              · Suena automáticamente cuando te asignan un nuevo pedido
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleToggleSound}
+              title={
+                soundEnabled
+                  ? 'Alerta sonora activada (clic para silenciar)'
+                  : 'Alerta sonora silenciada (clic para activar)'
+              }
+              className={`py-1.5 px-3 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                soundEnabled
+                  ? 'bg-[#53653D]/15 text-[#53653D] border-[#53653D]/30 hover:bg-[#53653D]/25'
+                  : 'bg-[#F6F4EF] text-[#756A5D] border-[#DED4C5] hover:text-[#1F2421]'
+              }`}
+            >
+              {soundEnabled ? (
+                <>
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>Sonido activo</span>
+                </>
+              ) : (
+                <>
+                  <VolumeX className="w-3.5 h-3.5" />
+                  <span>Silenciado</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleTestSound}
+              title="Reproducir tono de prueba de nueva asignación"
+              className="py-1.5 px-3 rounded-xl bg-[#0B72D9]/10 hover:bg-[#0B72D9]/20 border border-[#0B72D9]/30 text-[#0B72D9] font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <BellRing className="w-3.5 h-3.5" />
+              <span>Probar sonido</span>
+            </button>
+          </div>
+        </div>
+
         {/* Tarjetas rápidas */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <button

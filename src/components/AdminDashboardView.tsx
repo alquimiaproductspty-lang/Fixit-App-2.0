@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   collection, 
   query, 
@@ -6,6 +6,7 @@ import {
   orderBy, 
   setDoc, 
   doc, 
+  getDoc,
   updateDoc, 
   deleteDoc,
   serverTimestamp,
@@ -13,6 +14,11 @@ import {
   getDocs
 } from 'firebase/firestore';
 import { db, auth, AuthState } from '../lib/firebase';
+import {
+  isSoundEnabled,
+  setSoundEnabled,
+  playNewOrderSound,
+} from '../lib/soundAlert';
 import { getNextMonthlyOrderNumber } from '../lib/orderConsecutive';
 import { FIXIT_CATALOG } from '../data/catalog';
 import {
@@ -48,6 +54,11 @@ import {
   Download, 
   Plus, 
   MessageCircle, 
+  Share2,
+  Copy,
+  KeyRound,
+  Award,
+  CreditCard,
   Mail, 
   Phone, 
   Star, 
@@ -67,15 +78,22 @@ import {
   Clock,
   CheckCircle2,
   User,
-  FileText
+  FileText,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 
 export interface AdminFixer {
   id: string;
+  uid?: string;
   nombre: string;
   especialidad: 'Plomería' | 'Electricidad' | 'Reparaciones del hogar' | 'Pintura residencial' | string;
   telefono: string;
   correo?: string;
+  cedula?: string;
+  idoneidad_tipo?: string;
+  idoneidad_numero?: string;
+  photoURL?: string;
   disponibilidad: 'Disponible' | 'En servicio' | 'Inactivo';
   calificacion: number;
   trabajos_realizados: number;
@@ -219,6 +237,69 @@ function getCurrentMonthPrefix(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+export function getFixerShareText(f: AdminFixer): string {
+  const lines: string[] = ['🔧 *Técnico FIXIT*'];
+
+  const cleanNombre = (f.nombre || '').trim();
+  if (cleanNombre && cleanNombre.toUpperCase() !== 'N/A') {
+    lines.push(`👤 *${cleanNombre}*`);
+  }
+
+  const cleanEsp = (f.especialidad || '').trim();
+  if (cleanEsp && cleanEsp.toUpperCase() !== 'N/A') {
+    lines.push(`🛠️ ${cleanEsp}`);
+  }
+
+  const cleanTel = (f.telefono || '').trim();
+  if (cleanTel && cleanTel.toUpperCase() !== 'N/A') {
+    lines.push(`📱 ${cleanTel}`);
+  }
+
+  const cleanIdonTipo = (f.idoneidad_tipo || '').trim();
+  const cleanIdonNum = (f.idoneidad_numero || '').trim();
+  if (
+    cleanIdonTipo &&
+    cleanIdonTipo.toLowerCase() !== 'ninguna' &&
+    cleanIdonTipo.toUpperCase() !== 'N/A'
+  ) {
+    lines.push(
+      cleanIdonNum && cleanIdonNum.toUpperCase() !== 'N/A'
+        ? `🏅 Idoneidad: ${cleanIdonTipo} ${cleanIdonNum}`
+        : `🏅 Idoneidad: ${cleanIdonTipo}`
+    );
+  }
+
+  if (typeof f.calificacion === 'number' && f.calificacion > 0) {
+    const trabajos = typeof f.trabajos_realizados === 'number' ? f.trabajos_realizados : 0;
+    lines.push(`⭐ ${f.calificacion.toFixed(1)} · ${trabajos} trabajos`);
+  }
+
+  const cleanZona = (f.zona_cobertura || '').trim();
+  if (cleanZona && cleanZona.toUpperCase() !== 'N/A') {
+    lines.push(`📍 Zona: ${cleanZona}`);
+  }
+
+  lines.push('✅ Verificado por FIXIT Panamá');
+  return lines.join('\n');
+}
+
+export function getFixerShareLink(f: AdminFixer, targetPhone?: string): string {
+  const text = getFixerShareText(f);
+  const encodedText = encodeURIComponent(text);
+  if (targetPhone) {
+    let clean = targetPhone.replace(/\D/g, '');
+    if (clean.length === 8 && !clean.startsWith('507')) {
+      clean = `507${clean}`;
+    } else if (clean.length > 0 && !clean.startsWith('507') && clean.length < 10) {
+      clean = `507${clean}`;
+    }
+    if (clean) {
+      return `https://wa.me/${clean}?text=${encodedText}`;
+    }
+  }
+  return `https://wa.me/?text=${encodedText}`;
+}
+
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   authState,
   onGoHome,
@@ -289,6 +370,25 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   const [fixerToDelete, setFixerToDelete] = useState<AdminFixer | null>(null);
   const [isDeletingFixer, setIsDeletingFixer] = useState(false);
+
+  // === ESTADOS PARA ACCESO DE FIXERS Y CÓDIGO DE INVITACIÓN ===
+  const [fixerAccessMap, setFixerAccessMap] = useState<Record<string, boolean>>({});
+  const [fixerInviteCode, setFixerInviteCode] = useState<string | null>(null);
+  const [fixerInviteMeta, setFixerInviteMeta] = useState<{
+    updatedBy?: string;
+    updatedAt?: string;
+  } | null>(null);
+  const [isSavingInviteCode, setIsSavingInviteCode] = useState(false);
+
+  // === ALERTA SONORA DE NUEVOS PEDIDOS (ADMIN) ===
+  const [adminSoundEnabled, setAdminSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
+  const knownAdminOrderIdsRef = useRef<Set<string> | null>(null);
+
+  const handleToggleAdminSound = () => {
+    const next = !adminSoundEnabled;
+    setSoundEnabled(next);
+    setAdminSoundEnabledState(next);
+  };
 
   const [isCreateOrderModalOpen, setIsCreateOrderModalOpen] = useState(false);
   const [manualClientName, setManualClientName] = useState('');
@@ -366,6 +466,30 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     };
   }, []);
 
+  // Detectar NUEVOS pedidos en estado NUEVA (sin sonar en carga inicial ni por ediciones posteriores)
+  useEffect(() => {
+    if (loadingOrders) return;
+
+    if (knownAdminOrderIdsRef.current === null) {
+      knownAdminOrderIdsRef.current = new Set(orders.map((o) => o.id));
+      return;
+    }
+
+    let hasNewIncomingOrder = false;
+    for (const ord of orders) {
+      if (!knownAdminOrderIdsRef.current.has(ord.id)) {
+        knownAdminOrderIdsRef.current.add(ord.id);
+        if (normalizeStatus(ord.estado) === 'NUEVA') {
+          hasNewIncomingOrder = true;
+        }
+      }
+    }
+
+    if (hasNewIncomingOrder) {
+      playNewOrderSound('admin');
+    }
+  }, [orders, loadingOrders]);
+
   useEffect(() => {
     let unsubUsers: (() => void) | null = null;
     try {
@@ -409,10 +533,15 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           const data = d.data();
           fetched.push({
             id: d.id,
+            uid: data.uid || d.id,
             nombre: data.nombre || data.displayName || 'Fixer FIXIT',
             especialidad: data.especialidad || 'Reparaciones del hogar',
             telefono: data.telefono || data.phone || '',
             correo: data.correo || data.email,
+            cedula: data.cedula || '',
+            idoneidad_tipo: data.idoneidad_tipo || '',
+            idoneidad_numero: data.idoneidad_numero || '',
+            photoURL: data.photoURL || '',
             disponibilidad: data.disponibilidad || (data.activo === false ? 'Inactivo' : 'Disponible'),
             calificacion: typeof data.calificacion === 'number' ? data.calificacion : 4.9,
             trabajos_realizados: data.trabajos_realizados || data.servicios_completados || 0,
@@ -429,10 +558,15 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               const tData = td.data();
               tFetched.push({
                 id: td.id,
+                uid: tData.uid || td.id,
                 nombre: tData.nombre || 'Técnico FIXIT',
                 especialidad: tData.especialidad || 'Reparaciones del hogar',
                 telefono: tData.telefono || '',
                 correo: tData.correo,
+                cedula: tData.cedula || '',
+                idoneidad_tipo: tData.idoneidad_tipo || '',
+                idoneidad_numero: tData.idoneidad_numero || '',
+                photoURL: tData.photoURL || '',
                 disponibilidad: tData.activo === false ? 'Inactivo' : 'Disponible',
                 calificacion: typeof tData.calificacion === 'number' ? tData.calificacion : 5.0,
                 trabajos_realizados: tData.servicios_completados || 0,
@@ -462,6 +596,82 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       if (unsubFixers) unsubFixers();
     };
   }, []);
+
+  // Verificar acceso al app por cada fixer (existe users/{fixer.id}), cacheado en estado
+  useEffect(() => {
+    let cancelled = false;
+    const uncachedIds = fixers
+      .map((f) => f.id)
+      .filter((id) => id && fixerAccessMap[id] === undefined);
+
+    if (uncachedIds.length === 0) return;
+
+    Promise.all(
+      uncachedIds.map(async (id) => {
+        try {
+          const snap = await getDoc(doc(db, 'users', id));
+          return [id, snap.exists()] as const;
+        } catch {
+          return [id, false] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setFixerAccessMap((prev) => {
+        const next = { ...prev };
+        for (const [id, exists] of entries) {
+          next[id] = exists;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fixers, fixerAccessMap]);
+
+  // Cargar código de invitación actual desde settings/fixer_invite (solo ADMIN)
+  useEffect(() => {
+    if (!isAdmin) return;
+    let unsubInvite: (() => void) | null = null;
+    try {
+      const inviteDocRef = doc(db, 'settings', 'fixer_invite');
+      unsubInvite = onSnapshot(
+        inviteDocRef,
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            setFixerInviteCode(data.code || null);
+            setFixerInviteMeta({
+              updatedBy: data.updatedBy,
+              updatedAt: data.updatedAt,
+            });
+          } else {
+            setFixerInviteCode(null);
+            setFixerInviteMeta(null);
+          }
+        },
+        async () => {
+          try {
+            const snap = await getDoc(inviteDocRef);
+            if (snap.exists()) {
+              const data = snap.data();
+              setFixerInviteCode(data.code || null);
+              setFixerInviteMeta({
+                updatedBy: data.updatedBy,
+                updatedAt: data.updatedAt,
+              });
+            }
+          } catch {}
+        }
+      );
+    } catch {}
+
+    return () => {
+      if (unsubInvite) unsubInvite();
+    };
+  }, [isAdmin]);
 
   // Cargar Citas Agendadas
   useEffect(() => {
@@ -1144,6 +1354,70 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     return `https://wa.me/${clean}${message}`;
   };
 
+  const handleGenerateInviteCode = async () => {
+    if (!isAdmin) return;
+    setIsSavingInviteCode(true);
+    try {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      const pick = (len: number) =>
+        Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      const newCode = `FIXIT-${pick(4)}-${pick(4)}`;
+      const nowIso = new Date().toISOString();
+      const author = user?.displayName || user?.nombre || user?.email || 'Admin FIXIT';
+
+      await setDoc(doc(db, 'settings', 'fixer_invite'), {
+        code: newCode,
+        updatedBy: author,
+        updatedAt: nowIso,
+      });
+
+      setFixerInviteCode(newCode);
+      setFixerInviteMeta({ updatedBy: author, updatedAt: nowIso });
+      showToast(`Código de invitación generado: ${newCode}`, 'success');
+    } catch (err: any) {
+      console.error('[Admin] Error generando código de invitación:', err);
+      showToast(`Error al guardar código de invitación: ${err?.message || 'Error'}`, 'error');
+    } finally {
+      setIsSavingInviteCode(false);
+    }
+  };
+
+  const handleCopyInviteCode = async () => {
+    if (!fixerInviteCode) return;
+    try {
+      await navigator.clipboard.writeText(fixerInviteCode);
+      showToast(`Código ${fixerInviteCode} copiado al portapapeles.`, 'info');
+    } catch {
+      showToast(`Código actual: ${fixerInviteCode}`, 'info');
+    }
+  };
+
+  const resolveAssignedFixerForOrder = (ord: AdminOrder): AdminFixer | null => {
+    const hasAssigned = Boolean(ord.tecnico_id || ord.tecnico_nombre || ord.tecnico_asignado);
+    if (!hasAssigned) return null;
+
+    if (ord.tecnico_id) {
+      const byId = fixers.find((f) => f.id === ord.tecnico_id || f.uid === ord.tecnico_id);
+      if (byId) return byId;
+    }
+
+    const assignedName = (ord.tecnico_nombre || ord.tecnico_asignado || '').trim().toLowerCase();
+    if (assignedName) {
+      const byName = fixers.find((f) => f.nombre.trim().toLowerCase() === assignedName);
+      if (byName) return byName;
+    }
+
+    return {
+      id: ord.tecnico_id || 'assigned',
+      nombre: ord.tecnico_nombre || ord.tecnico_asignado || 'Técnico FIXIT',
+      especialidad: ord.servicio_probable?.category || 'Reparaciones del hogar',
+      telefono: '',
+      disponibilidad: 'Disponible',
+      calificacion: 0,
+      trabajos_realizados: 0,
+    };
+  };
+
   const handleCreateFixer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFixerName.trim()) return;
@@ -1634,6 +1908,32 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            type="button"
+            onClick={handleToggleAdminSound}
+            title={
+              adminSoundEnabled
+                ? 'Alerta sonora de nuevos pedidos activa (clic para silenciar)'
+                : 'Alerta sonora de nuevos pedidos silenciada (clic para activar)'
+            }
+            className={`py-2.5 px-3.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+              adminSoundEnabled
+                ? 'bg-[#53653D]/15 text-[#53653D] border-[#53653D]/30 hover:bg-[#53653D]/25'
+                : 'bg-[#F6F4EF] text-[#756A5D] border-[#DED4C5] hover:text-[#1F2421]'
+            }`}
+          >
+            {adminSoundEnabled ? (
+              <>
+                <Volume2 className="w-4 h-4" />
+                <span>Sonido activo</span>
+              </>
+            ) : (
+              <>
+                <VolumeX className="w-4 h-4" />
+                <span>Silenciado</span>
+              </>
+            )}
+          </button>
           {onOpenFixerView && (
             <button
               onClick={onOpenFixerView}
@@ -2233,11 +2533,28 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                                 href={getWhatsAppLink(ord.cliente.telefono, `Hola ${ord.cliente.nombre || ''}, respecto a tu pedido ${consecutivo}.`)}
                                 target="_blank"
                                 rel="noreferrer"
+                                title="Contactar al cliente por WhatsApp sobre su pedido"
                                 className="p-1.5 rounded-lg bg-[#53653D]/10 text-[#53653D] hover:bg-[#53653D]/20 transition-colors"
                               >
                                 <MessageCircle className="w-3.5 h-3.5" />
                               </a>
                             )}
+                            {(() => {
+                              const assignedFixer = resolveAssignedFixerForOrder(ord);
+                              if (!assignedFixer) return null;
+                              return (
+                                <a
+                                  href={getFixerShareLink(assignedFixer, ord.cliente?.telefono)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title={`Enviar ficha verificada del técnico (${assignedFixer.nombre}) al cliente por WhatsApp`}
+                                  className="py-1 px-2.5 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] transition-colors text-[11px] font-bold flex items-center gap-1"
+                                >
+                                  <Share2 className="w-3.5 h-3.5" />
+                                  <span>Enviar fixer al cliente</span>
+                                </a>
+                              );
+                            })()}
                             {isAdmin && (
                               <button
                                 type="button"
@@ -2351,7 +2668,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-6 shadow-2xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h2 className="font-serif font-bold text-xl text-[#1F2421]">Directorio de Fixers ({filteredFixers.length})</h2>
+              <h2 className="font-serif font-bold text-xl text-[#1F2421]">
+                Directorio de Fixers ({filteredFixers.length})
+              </h2>
+              <p className="text-xs text-[#756A5D] mt-0.5">
+                Los técnicos auto-registrados con código de invitación muestran <strong>Con acceso</strong> y reciben asignaciones en tiempo real.
+              </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <button
@@ -2365,39 +2687,180 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </div>
           </div>
 
+          {/* Gestor de Código de Invitación (solo ADMIN) */}
+          {isAdmin && (
+            <div className="p-4 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#082D60]">
+                  <KeyRound className="w-4 h-4 text-[#0B72D9]" />
+                  <span>Código de Invitación para Auto-Registro de Fixers</span>
+                </div>
+                <p className="text-[11px] text-[#756A5D]">
+                  Comparte este código con tus técnicos para que se registren desde su teléfono y vinculen su cuenta <code>fixers/&#123;uid&#125;</code>.
+                  {fixerInviteMeta?.updatedBy ? ` · Actualizado por ${fixerInviteMeta.updatedBy}` : ''}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {fixerInviteCode ? (
+                  <>
+                    <span className="font-mono font-bold text-sm px-3 py-1.5 rounded-xl bg-[#FFFEFA] border border-[#DED4C5] text-[#082D60] tracking-wider select-all">
+                      {fixerInviteCode}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCopyInviteCode}
+                      title="Copiar código al portapapeles"
+                      className="py-1.5 px-3 rounded-xl bg-[#082D60] hover:bg-[#07244D] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copiar</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isSavingInviteCode}
+                      onClick={handleGenerateInviteCode}
+                      title="Generar un nuevo código e invalidar el anterior"
+                      className="py-1.5 px-3 rounded-xl border border-[#DED4C5] bg-[#FFFEFA] hover:bg-[#DED4C5]/30 text-[#1F2421] font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSavingInviteCode ? 'animate-spin' : ''}`} />
+                      <span>Regenerar</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isSavingInviteCode}
+                    onClick={handleGenerateInviteCode}
+                    className="py-2 px-3.5 rounded-xl bg-[#082D60] hover:bg-[#07244D] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors disabled:opacity-50"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>{isSavingInviteCode ? 'Generando...' : 'Generar código'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="overflow-x-auto rounded-2xl border border-[#DED4C5]/80">
             <table className="w-full text-left text-xs">
               <thead className="bg-[#F6F4EF] border-b border-[#DED4C5] text-[#756A5D] uppercase text-[10px] font-bold tracking-wider">
                 <tr>
-                  <th className="py-3 px-4">Nombre</th>
-                  <th className="py-3 px-4">Especialidad</th>
-                  <th className="py-3 px-4">Teléfono</th>
+                  <th className="py-3 px-4">Técnico / Cédula</th>
+                  <th className="py-3 px-4">Especialidad & Idoneidad</th>
+                  <th className="py-3 px-4">Teléfono / Zona</th>
+                  <th className="py-3 px-4">Acceso App</th>
                   <th className="py-3 px-4">Estado</th>
                   <th className="py-3 px-4 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#DED4C5]/60 bg-[#FFFEFA]">
-                {filteredFixers.map((fixer) => (
-                  <tr key={fixer.id} className="hover:bg-[#F6F4EF]/50 transition-colors">
-                    <td className="py-3 px-4 font-bold text-[#1F2421]">{fixer.nombre}</td>
-                    <td className="py-3 px-4 font-medium text-[#0B72D9]">{fixer.especialidad}</td>
-                    <td className="py-3 px-4 font-mono">{fixer.telefono || 'N/A'}</td>
-                    <td className="py-3 px-4">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-[#53653D]/10 text-[#53653D] border-[#53653D]/30">
-                        {fixer.disponibilidad}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setFixerToDelete(fixer)}
-                        className="p-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredFixers.map((fixer) => {
+                  const hasAppAccess = Boolean(fixerAccessMap[fixer.id]);
+                  const initial = (fixer.nombre || 'F').trim().charAt(0).toUpperCase();
+                  const hasIdoneidad =
+                    Boolean(fixer.idoneidad_tipo) &&
+                    fixer.idoneidad_tipo?.toLowerCase() !== 'ninguna';
+
+                  return (
+                    <tr key={fixer.id} className="hover:bg-[#F6F4EF]/50 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-[#082D60]/10 border border-[#DED4C5] text-[#082D60] font-serif font-bold text-sm flex items-center justify-center overflow-hidden shrink-0">
+                            {fixer.photoURL ? (
+                              <img
+                                src={fixer.photoURL}
+                                alt={fixer.nombre}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span>{initial}</span>
+                            )}
+                          </div>
+                          <div>
+                            <span className="font-bold text-[#1F2421] block">{fixer.nombre}</span>
+                            {fixer.cedula ? (
+                              <span className="text-[11px] font-mono text-[#756A5D] flex items-center gap-1">
+                                <CreditCard className="w-3 h-3 text-[#756A5D]" />
+                                <span>Cédula: {fixer.cedula}</span>
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-[#756A5D] font-mono">
+                                ID: {fixer.id}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="font-semibold text-[#0B72D9] block">
+                          {fixer.especialidad}
+                        </span>
+                        {hasIdoneidad ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#53653D] bg-[#53653D]/10 border border-[#53653D]/25 px-2 py-0.5 rounded-md mt-0.5">
+                            <Award className="w-3 h-3" />
+                            <span>
+                              Idoneidad: {fixer.idoneidad_tipo}
+                              {fixer.idoneidad_numero ? ` · ${fixer.idoneidad_numero}` : ''}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-[#756A5D]">Sin idoneidad registrada</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="font-mono text-[#1F2421] block">
+                          {fixer.telefono || 'Sin teléfono'}
+                        </span>
+                        {fixer.zona_cobertura && (
+                          <span className="text-[11px] text-[#756A5D] truncate block max-w-[180px]">
+                            {fixer.zona_cobertura}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        {hasAppAccess ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-[#53653D]/15 text-[#53653D] border border-[#53653D]/30">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Con acceso</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                            <AlertCircle className="w-3 h-3" />
+                            <span>Sin acceso</span>
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-[#53653D]/10 text-[#53653D] border-[#53653D]/30">
+                          {fixer.disponibilidad}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <a
+                            href={getFixerShareLink(fixer)}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`Compartir ficha verificada de ${fixer.nombre} por WhatsApp`}
+                            className="py-1 px-2.5 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] font-bold text-[11px] inline-flex items-center gap-1 transition-colors"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                            <span>Compartir</span>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => setFixerToDelete(fixer)}
+                            title="Eliminar fixer"
+                            className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -3069,10 +3532,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 <option value="">Selecciona un técnico ({assignFilteredFixers.length})</option>
                 {assignFilteredFixers.map((f) => (
                   <option key={f.id} value={f.id}>
-                    {f.nombre} — {f.especialidad} · {f.disponibilidad}{f.zona_cobertura ? ` · ${f.zona_cobertura}` : ''}
+                    {f.nombre} — {f.especialidad} · {f.disponibilidad}{f.zona_cobertura ? ` · ${f.zona_cobertura}` : ''} ({fixerAccessMap[f.id] ? 'Con acceso' : 'Sin acceso'})
                   </option>
                 ))}
               </select>
+              {assignFixerId && fixerAccessMap[assignFixerId] === false && (
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Este fixer no tiene acceso al app: no verá la asignación.</span>
+                </p>
+              )}
               {fixers.find((f) => f.id === assignFixerId)?.disponibilidad === 'En servicio' && (
                 <p className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                   <AlertTriangle className="w-3.5 h-3.5" />

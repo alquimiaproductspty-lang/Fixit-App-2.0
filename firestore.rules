@@ -137,6 +137,15 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    // Application Settings (Invite Codes & System Config)
+    // =========================================================================
+    match /settings/{settingId} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // =========================================================================
     // Users Profiles & Authorizations (PII Guarded)
     // =========================================================================
     match /users/{userId} {
@@ -162,6 +171,16 @@ service cloud.firestore {
           'displayName', 'phone', 'photoURL', 'languagePreference', 'direccion', 'city', 'marketingOptIn', 'updatedAt', 'lastLoginAt',
           'fcmToken', 'fcmTokens', 'notificationsEnabled', 'lastFcmTokenAt'
         ])) ||
+        (isOwner(userId) &&
+          resource.data.role in ['CLIENT', 'customer'] &&
+          request.resource.data.role == 'TECHNICIAN' &&
+          request.resource.data.technicianId == userId &&
+          request.resource.data.inviteCode == get(/databases/$(database)/documents/settings/fixer_invite).data.code &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'displayName', 'phone', 'photoURL', 'direccion', 'city', 'role',
+            'technicianId', 'inviteCode', 'onboardingCompletedAt', 'updatedAt', 'lastLoginAt'
+          ])
+        ) ||
         (isAdmin()) ||
         (isOperator() && resource.data.role != 'ADMIN' && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'displayName', 'phone', 'direccion', 'city', 'notas', 'status', 'updatedAt'
@@ -251,7 +270,23 @@ service cloud.firestore {
     // =========================================================================
     match /technicians/{technicianId} {
       allow read: if isSignedIn();
-      allow write: if isOperator();
+      allow create: if isOperator() || (
+        isSignedIn() &&
+        technicianId == request.auth.uid &&
+        request.resource.data.nombre is string &&
+        request.resource.data.nombre.size() > 0 &&
+        request.resource.data.cedula is string &&
+        request.resource.data.cedula.size() > 0
+      );
+      allow update: if isOperator() || (
+        isOwner(technicianId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'nombre', 'telefono', 'correo', 'especialidad', 'zona_cobertura',
+          'disponibilidad', 'photoURL', 'cedula', 'idoneidad_tipo', 'idoneidad_numero',
+          'activo', 'updatedAt'
+        ])
+      );
+      allow delete: if isAdmin();
     }
 
     // =========================================================================
@@ -320,7 +355,23 @@ service cloud.firestore {
     // =========================================================================
     match /fixers/{fixerId} {
       allow read: if isSignedIn();
-      allow write: if isOperator();
+      allow create: if isOperator() || (
+        isSignedIn() &&
+        fixerId == request.auth.uid &&
+        request.resource.data.nombre is string &&
+        request.resource.data.nombre.size() > 0 &&
+        request.resource.data.cedula is string &&
+        request.resource.data.cedula.size() > 0
+      );
+      allow update: if isOperator() || (
+        isOwner(fixerId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'nombre', 'telefono', 'correo', 'especialidad', 'zona_cobertura',
+          'disponibilidad', 'photoURL', 'cedula', 'idoneidad_tipo', 'idoneidad_numero',
+          'activo', 'updatedAt'
+        ])
+      );
+      allow delete: if isAdmin();
     }
 
     // =========================================================================

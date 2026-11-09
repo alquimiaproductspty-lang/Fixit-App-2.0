@@ -1,10 +1,12 @@
 import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
-import { authService, AuthState } from './lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, authService, AuthState } from './lib/firebase';
 import { AuthLoginScreen } from './components/auth/AuthLoginScreen';
+import { FixerOnboarding } from './components/auth/FixerOnboarding';
 import { AdminDashboardView } from './components/AdminDashboardView';
 import { FixerDashboardView } from './components/FixerDashboardView';
 import { FixitLogo } from './components/FixitLogo';
-import { Shield, ShieldCheck, LogOut, Loader2, Lock, Wrench, LayoutDashboard, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Shield, ShieldCheck, LogOut, Loader2, Wrench, LayoutDashboard, AlertTriangle, RefreshCw } from 'lucide-react';
 import { PWAUpdatePrompt } from './components/PWAUpdatePrompt';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import TermsOfService from './pages/TermsOfService';
@@ -83,6 +85,8 @@ class ConsoleErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>(() => authService.getAuthState());
   const [adminViewMode, setAdminViewMode] = useState<'admin' | 'fixer'>('admin');
+  const [checkingFixerDoc, setCheckingFixerDoc] = useState(false);
+  const [missingFixerDoc, setMissingFixerDoc] = useState(false);
   const pwaUpdate = usePWAUpdate();
 
   // Escuchar el estado de autenticación en tiempo real
@@ -104,6 +108,37 @@ export default function App() {
       });
     }
   }, [authState.loading, authState.user]);
+
+  // Verificar si un usuario TECHNICIAN ya posee su ficha en fixers/{uid}
+  useEffect(() => {
+    const u = authState.user;
+    if (authState.loading || !u || u.isAnonymous || u.role !== 'TECHNICIAN') {
+      setCheckingFixerDoc(false);
+      setMissingFixerDoc(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCheckingFixerDoc(true);
+    getDoc(doc(db, 'fixers', u.uid))
+      .then((snap) => {
+        if (!cancelled) {
+          setMissingFixerDoc(!snap.exists());
+          setCheckingFixerDoc(false);
+        }
+      })
+      .catch((err) => {
+        console.warn('[FIXIT CRM] Error verificando ficha fixers/{uid}:', err);
+        if (!cancelled) {
+          setMissingFixerDoc(false);
+          setCheckingFixerDoc(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authState.loading, authState.user?.uid, authState.user?.role]);
 
   // 0. Rutas legales públicas (sin auth): los enlaces del login abren estas URLs en pestaña nueva
   const publicPath = typeof window !== 'undefined' ? window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase() : '';
@@ -158,42 +193,47 @@ export default function App() {
   const isTechnician = currentUser.role === 'TECHNICIAN';
   const hasConsoleAccess = isAdmin || isOperator || isTechnician;
 
-  // 4. Si el usuario autenticado NO posee rol de ADMIN, OPERATOR ni TECHNICIAN, restringir acceso
+  // 4. Si el usuario autenticado tiene rol CLIENT (no posee ADMIN/OPERATOR/TECHNICIAN),
+  // mostrar flujo de auto-registro Fixer con código de invitación
   if (!hasConsoleAccess) {
     return (
-      <div className="min-h-screen bg-[#F6F4EF] flex flex-col items-center justify-center p-6 font-sans">
-        <div className="max-w-md w-full bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-6 sm:p-8 shadow-md text-center space-y-5">
-          <div className="w-14 h-14 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
-            <Lock className="w-7 h-7" />
-          </div>
+      <>
+        <FixerOnboarding authState={authState} />
+        <PWAUpdatePrompt updateState={pwaUpdate} />
+      </>
+    );
+  }
 
-          <div className="space-y-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 px-2.5 py-0.5 rounded-full border border-rose-200">
-              Acceso Restringido
-            </span>
-            <h1 className="font-serif font-bold text-xl sm:text-2xl text-[#1F2421]">
-              Permisos Insuficientes
-            </h1>
-            <p className="text-xs text-[#756A5D] leading-relaxed">
-              La cuenta <strong className="text-[#1F2421]">{currentUser.email || currentUser.displayName}</strong> está registrada con rol de <strong className="text-[#082D60]">{currentUser.role || 'Cliente'}</strong>.
-            </p>
-            <p className="text-xs text-[#756A5D] leading-relaxed">
-              Este subdominio es de uso exclusivo para Administradores y Técnicos Fixer de FIXIT. Si crees que se trata de un error, solicita la elevación de permisos en Firebase.
-            </p>
-          </div>
-
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={() => authService.signOut()}
-              className="w-full py-3.5 px-4 rounded-2xl bg-[#082D60] hover:bg-[#07244D] text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-xs active:scale-[0.99]"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Cerrar Sesión e Iniciar con Cuenta Autorizada</span>
-            </button>
-          </div>
+  // 4b. Si es TECHNICIAN pero aún no tiene su ficha fixers/{uid}, mostrar modo solo-perfil
+  if (isTechnician && checkingFixerDoc) {
+    return (
+      <div className="min-h-screen bg-[#F6F4EF] flex flex-col items-center justify-center p-6 text-center space-y-4 font-sans select-none">
+        <div className="w-14 h-14 rounded-2xl bg-[#082D60] text-white flex items-center justify-center shadow-md animate-pulse">
+          <Wrench className="w-7 h-7 text-white" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="font-serif font-bold text-xl text-[#082D60]">
+            Consola Técnica FIXIT
+          </h2>
+          <p className="text-xs text-[#756A5D] flex items-center justify-center gap-1.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0B72D9]" />
+            <span>Verificando ficha de perfil Fixer...</span>
+          </p>
         </div>
       </div>
+    );
+  }
+
+  if (isTechnician && missingFixerDoc) {
+    return (
+      <>
+        <FixerOnboarding
+          authState={authState}
+          profileOnlyMode={true}
+          onComplete={() => setMissingFixerDoc(false)}
+        />
+        <PWAUpdatePrompt updateState={pwaUpdate} />
+      </>
     );
   }
 

@@ -30,6 +30,7 @@ import {
   onSnapshot,
   serverTimestamp
 } from 'firebase/firestore';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { 
   AppRole, 
@@ -48,6 +49,29 @@ export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getA
 // Firestore en base (default): ahi viven los documentos reales (users, requests, etc.).
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
+
+export async function uploadFixerPhoto(uid: string, file: File): Promise<string> {
+  if (!uid || !uid.trim()) {
+    throw new Error('UID de usuario inválido para subir la foto.');
+  }
+  if (!file) {
+    throw new Error('Selecciona una foto de perfil.');
+  }
+  if (!file.type || !file.type.startsWith('image/')) {
+    throw new Error('El archivo seleccionado debe ser una imagen válida (JPG, PNG, WEBP).');
+  }
+  const MAX_BYTES = 5 * 1024 * 1024; // 5MB
+  if (file.size > MAX_BYTES) {
+    throw new Error('La foto supera el tamaño máximo permitido de 5 MB. Por favor elige una imagen más liviana.');
+  }
+
+  const fileRef = storageRef(storage, `fixers/${uid.trim()}/profile.jpg`);
+  await uploadBytes(fileRef, file, {
+    contentType: file.type || 'image/jpeg',
+  });
+  return await getDownloadURL(fileRef);
+}
 
 // Explicitly ensure official Firebase browser local persistence for Safari iOS, Chrome Android, and installed PWAs
 if (typeof window !== 'undefined') {
@@ -372,6 +396,17 @@ export const authService = {
 
   getAuthState(): AuthState {
     return currentAuthState;
+  },
+
+  async refreshProfile(): Promise<ActiveUser | null> {
+    const fbUser = auth.currentUser;
+    if (!fbUser) {
+      return currentAuthState.user;
+    }
+    const activeUser = await syncUserWithFirestore(fbUser);
+    currentAuthState = { user: activeUser, loading: false, error: null };
+    notifyAuthListeners();
+    return activeUser;
   },
 
   // Google Sign-In with popup (Real Firebase Auth flow via Client SDK)
