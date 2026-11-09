@@ -15,12 +15,34 @@ import {
 import { db, auth, AuthState } from '../lib/firebase';
 import { getNextMonthlyOrderNumber } from '../lib/orderConsecutive';
 import { FIXIT_CATALOG } from '../data/catalog';
-import { sanitizeForFirestore, updateOrderInFirestore, assignTechnicianToOrder, getQuotesFromFirestore, updateQuoteInFirestore } from '../lib/firestoreService';
-import { normalizeStatus, OFFICIAL_STATUS_DISPLAY, type OfficialRequestStatus, type ManagedQuote, type QuoteStatus } from '../types';
+import {
+  sanitizeForFirestore,
+  updateOrderInFirestore,
+  assignTechnicianToOrder,
+  getQuotesFromFirestore,
+  updateQuoteInFirestore,
+  deleteQuoteInFirestore,
+  getPaymentsFromFirestore,
+  recordPaymentInFirestore,
+  updatePaymentInFirestore,
+  deletePaymentInFirestore,
+} from '../lib/firestoreService';
+import {
+  normalizeStatus,
+  OFFICIAL_STATUS_DISPLAY,
+  type OfficialRequestStatus,
+  type ManagedQuote,
+  type QuoteStatus,
+  type ManagedPayment,
+  type PaymentMethod,
+  type PaymentStatus,
+} from '../types';
 import { 
   Users, 
   Wrench, 
   DollarSign, 
+  Banknote,
+  Edit2,
   Package, 
   Search, 
   Download, 
@@ -165,22 +187,58 @@ const ORDER_STATUS_OPTIONS: { value: OfficialRequestStatus; label: string }[] = 
   { value: 'CANCELADA', label: 'Cancelada' },
 ];
 
+const PAYMENT_METHOD_OPTIONS: PaymentMethod[] = [
+  'Yappy',
+  'Transferencia ACH',
+  'Efectivo',
+  'Tarjeta / Terminal',
+  'MiPOS BAC',
+  'Pago en línea',
+  'Pendiente',
+];
+
+function getPaymentMonthPrefix(fecha?: string | null): string {
+  if (!fecha || typeof fecha !== 'string') return '';
+  const trimmed = fecha.trim();
+  if (/^\d{4}-\d{2}/.test(trimmed)) {
+    return trimmed.slice(0, 7);
+  }
+  const slashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (slashMatch) {
+    return `${slashMatch[3]}-${slashMatch[2].padStart(2, '0')}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 7);
+  }
+  return trimmed.slice(0, 7);
+}
+
+function getCurrentMonthPrefix(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   authState,
   onGoHome,
   onOpenFixerView,
 }) => {
   const user = authState.user;
-  const isAdmin = user?.isAdmin || user?.role === 'ADMIN';
+  const isAdmin = Boolean(user?.isAdmin || user?.role === 'ADMIN');
+  const isOperator = user?.role === 'OPERATOR';
+  const hasAdminOrOperatorAccess = isAdmin || isOperator;
 
   useEffect(() => {
-    if (!authState.loading && !isAdmin) {
+    if (!authState.loading && !hasAdminOrOperatorAccess) {
       onGoHome();
     }
-  }, [authState.loading, isAdmin, onGoHome]);
+  }, [authState.loading, hasAdminOrOperatorAccess, onGoHome]);
 
-  // Tab State: [Resumen y KPIs] | [Cotizaciones] | [Pedidos] | [Clientes] | [Fixers] | [Agenda]
-  const [activeTab, setActiveTab] = useState<'kpis' | 'quotes' | 'orders' | 'clients' | 'fixers' | 'agenda'>('kpis');
+  // Tab State: [Resumen y KPIs] | [Pagos e Ingresos] | [Cotizaciones] | [Pedidos] | [Clientes] | [Fixers] | [Agenda]
+  const [activeTab, setActiveTab] = useState<
+    'kpis' | 'payments' | 'quotes' | 'orders' | 'clients' | 'fixers' | 'agenda'
+  >('kpis');
 
   const [fixerViewMode, setFixerViewMode] = useState<'cards' | 'table'>('cards');
 
@@ -188,10 +246,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [clients, setClients] = useState<AdminUser[]>([]);
   const [fixers, setFixers] = useState<AdminFixer[]>([]);
   const [quotes, setQuotes] = useState<ManagedQuote[]>([]);
+  const [payments, setPayments] = useState<ManagedPayment[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [loadingClients, setLoadingClients] = useState(true);
   const [loadingFixers, setLoadingFixers] = useState(true);
   const [loadingQuotes, setLoadingQuotes] = useState(true);
+  const [loadingPayments, setLoadingPayments] = useState(true);
 
   const [clientSearch, setClientSearch] = useState('');
   const [orderSearch, setOrderSearch] = useState('');
@@ -199,6 +259,24 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [fixerFilter, setFixerFilter] = useState('all');
   const [quoteSearch, setQuoteSearch] = useState('');
   const [quoteStatusFilter, setQuoteStatusFilter] = useState('all');
+
+  // === ESTADOS PARA PAGOS E INGRESOS REALES ===
+  const [paymentMonthFilter, setPaymentMonthFilter] = useState<string>(() => getCurrentMonthPrefix());
+  const [paymentSearch, setPaymentSearch] = useState('');
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<ManagedPayment | null>(null);
+  const [paymentOrderId, setPaymentOrderId] = useState('');
+  const [paymentOrderCode, setPaymentOrderCode] = useState('');
+  const [paymentQuoteId, setPaymentQuoteId] = useState('');
+  const [paymentClientName, setPaymentClientName] = useState('');
+  const [paymentClientUid, setPaymentClientUid] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('Yappy');
+  const [paymentDate, setPaymentDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [paymentStatus, setPaymentStatus] = useState<'Pendiente' | 'Confirmado'>('Confirmado');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
 
   const [isAddFixerModalOpen, setIsAddFixerModalOpen] = useState(false);
   const [newFixerName, setNewFixerName] = useState('');
@@ -443,6 +521,39 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     };
   }, []);
 
+  // Cargar Pagos Registrados (tiempo real + fallback a caché)
+  useEffect(() => {
+    let unsubPayments: (() => void) | null = null;
+    try {
+      const qPayments = query(collection(db, 'payments'), orderBy('fecha', 'desc'));
+      unsubPayments = onSnapshot(
+        qPayments,
+        (snapshot) => {
+          const fetched: ManagedPayment[] = [];
+          snapshot.forEach((d) => {
+            fetched.push({ ...(d.data() as ManagedPayment), id: d.id });
+          });
+          setPayments(fetched);
+          setLoadingPayments(false);
+        },
+        async (err) => {
+          console.warn('[Admin] Error en listener de payments, usando fallback:', err);
+          const fallbackPayments = await getPaymentsFromFirestore();
+          setPayments(fallbackPayments);
+          setLoadingPayments(false);
+        }
+      );
+    } catch {
+      getPaymentsFromFirestore()
+        .then((list) => setPayments(list))
+        .finally(() => setLoadingPayments(false));
+    }
+
+    return () => {
+      if (unsubPayments) unsubPayments();
+    };
+  }, []);
+
   const totalOrdersCount = orders.length;
 
   const totalOrdersRevenue = useMemo(() => {
@@ -550,6 +661,380 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       showToast(`Cotización ${quote.numero_cotizacion} marcada como ${nextStatus}.`, 'info');
     } catch (err: any) {
       showToast(`Error actualizando cotización: ${err?.message || 'Error'}`, 'error');
+    }
+  };
+
+  const handleDeleteQuote = async (quote: ManagedQuote) => {
+    if (!isAdmin) return;
+    const folio = quote.numero_cotizacion || quote.id;
+    const confirmed =
+      typeof window !== 'undefined' && typeof window.confirm === 'function'
+        ? window.confirm(
+            `¿Eliminar definitivamente la cotización ${folio} (${quote.cliente_nombre || 'Consumidor Final'})? Esta acción quedará registrada en auditoría.`
+          )
+        : true;
+    if (!confirmed) return;
+
+    try {
+      const authorName = user?.displayName || user?.nombre || user?.email || 'Admin FIXIT';
+      await deleteQuoteInFirestore(quote.id, authorName);
+      setQuotes((prev) => prev.filter((q) => q.id !== quote.id));
+      showToast(`Cotización ${folio} eliminada correctamente.`, 'success');
+    } catch (err: any) {
+      showToast(`Error eliminando cotización: ${err?.message || 'Error'}`, 'error');
+    }
+  };
+
+  // === MÉTRICAS Y OPERACIONES DE PAGOS E INGRESOS REALES ===
+  const currentMonthPrefix = useMemo(() => getCurrentMonthPrefix(), []);
+
+  const confirmedCurrentMonthRevenue = useMemo(() => {
+    return payments.reduce((sum, p) => {
+      const st = String(p.estado || '').toLowerCase();
+      const month = getPaymentMonthPrefix(p.fecha);
+      if (st === 'confirmado' && month === currentMonthPrefix) {
+        return sum + (Number(p.monto) || 0);
+      }
+      return sum;
+    }, 0);
+  }, [payments, currentMonthPrefix]);
+
+  const confirmedCurrentMonthCount = useMemo(() => {
+    return payments.filter(
+      (p) =>
+        String(p.estado || '').toLowerCase() === 'confirmado' &&
+        getPaymentMonthPrefix(p.fecha) === currentMonthPrefix
+    ).length;
+  }, [payments, currentMonthPrefix]);
+
+  const monthlyPaymentsSummary = useMemo(() => {
+    let confirmedSum = 0;
+    let confirmedCount = 0;
+    let pendingSum = 0;
+    let pendingCount = 0;
+
+    payments.forEach((p) => {
+      const month = getPaymentMonthPrefix(p.fecha);
+      if (paymentMonthFilter && month !== paymentMonthFilter) return;
+      const st = String(p.estado || '').toLowerCase();
+      const monto = Number(p.monto) || 0;
+      if (st === 'confirmado') {
+        confirmedSum += monto;
+        confirmedCount += 1;
+      } else if (st === 'pendiente') {
+        pendingSum += monto;
+        pendingCount += 1;
+      }
+    });
+
+    return { confirmedSum, confirmedCount, pendingSum, pendingCount };
+  }, [payments, paymentMonthFilter]);
+
+  const filteredPayments = useMemo(() => {
+    return payments.filter((p) => {
+      if (paymentMonthFilter) {
+        const month = getPaymentMonthPrefix(p.fecha);
+        if (month !== paymentMonthFilter) return false;
+      }
+      if (paymentSearch.trim()) {
+        const term = paymentSearch.toLowerCase();
+        const code = (p.solicitud_codigo || p.solicitud_id || '').toLowerCase();
+        const quoteCode = (p.cotizacion_codigo || p.cotizacion_id || '').toLowerCase();
+        const client = (p.cliente_nombre || '').toLowerCase();
+        const ref = (p.referencia || p.referencia_transaccion || '').toLowerCase();
+        const method = (p.metodo || '').toLowerCase();
+        return (
+          code.includes(term) ||
+          quoteCode.includes(term) ||
+          client.includes(term) ||
+          ref.includes(term) ||
+          method.includes(term)
+        );
+      }
+      return true;
+    });
+  }, [payments, paymentMonthFilter, paymentSearch]);
+
+  const getConfirmedPaidForOrder = (orderId?: string, orderCode?: string, quoteId?: string): number => {
+    return payments.reduce((sum, p) => {
+      const st = String(p.estado || '').toLowerCase();
+      if (st !== 'confirmado') return sum;
+      const matchOrder =
+        (orderId && p.solicitud_id === orderId) ||
+        (orderCode && p.solicitud_codigo === orderCode);
+      const matchQuote = quoteId && (p.cotizacion_id === quoteId || p.cotizacion_codigo === quoteId);
+      if (matchOrder || matchQuote) {
+        return sum + (Number(p.monto) || 0);
+      }
+      return sum;
+    }, 0);
+  };
+
+  const openNewPaymentModal = (prefill?: {
+    order?: AdminOrder;
+    quote?: ManagedQuote;
+  }) => {
+    setEditingPayment(null);
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (prefill?.quote) {
+      const q = prefill.quote;
+      const linkedOrd = orders.find(
+        (o) =>
+          o.id === q.solicitud_id ||
+          (q.solicitud_codigo &&
+            (o.numero_pedido === q.solicitud_codigo ||
+              o.codigo_seguimiento === q.solicitud_codigo))
+      );
+      const ordCode =
+        q.solicitud_codigo ||
+        linkedOrd?.numero_pedido ||
+        linkedOrd?.codigo_seguimiento ||
+        q.solicitud_id ||
+        '';
+      const alreadyPaid = getConfirmedPaidForOrder(
+        linkedOrd?.id || q.solicitud_id,
+        ordCode,
+        q.numero_cotizacion || q.id
+      );
+      const quoteTotal = Number(q.total) || 0;
+      const pendingAmount = Math.max(0, Number((quoteTotal - alreadyPaid).toFixed(2)));
+
+      setPaymentOrderId(linkedOrd?.id || q.solicitud_id || '');
+      setPaymentOrderCode(ordCode);
+      setPaymentQuoteId(q.numero_cotizacion || q.id);
+      setPaymentClientName(q.cliente_nombre || linkedOrd?.cliente?.nombre || '');
+      setPaymentClientUid(
+        q.cliente_uid ||
+          (linkedOrd as any)?.creado_por_uid ||
+          (linkedOrd?.cliente as any)?.id ||
+          ''
+      );
+      setPaymentAmount(String(pendingAmount > 0 ? pendingAmount : quoteTotal || 35));
+      setPaymentMethod('Yappy');
+      setPaymentDate(today);
+      setPaymentStatus('Confirmado');
+      setPaymentReference('');
+      setPaymentNotes(`Pago asociado a cotización ${q.numero_cotizacion || q.id}`);
+      setIsPaymentModalOpen(true);
+      return;
+    }
+
+    if (prefill?.order) {
+      const ord = prefill.order;
+      const ordCode =
+        ord.numero_pedido ||
+        ord.consecutiveId ||
+        ord.orderNumber ||
+        ord.codigo_seguimiento ||
+        ord.id;
+      const linkedQuote = quotes.find(
+        (q) => q.solicitud_id === ord.id || (ordCode && q.solicitud_codigo === ordCode)
+      );
+      const orderTotal =
+        Number(ord.total_facturado ?? ord.precio_regular ?? ord.servicio_probable?.price ?? 35) ||
+        35;
+      const alreadyPaid = getConfirmedPaidForOrder(ord.id, ordCode, linkedQuote?.id);
+      const pendingAmount = Math.max(0, Number((orderTotal - alreadyPaid).toFixed(2)));
+
+      setPaymentOrderId(ord.id);
+      setPaymentOrderCode(ordCode);
+      setPaymentQuoteId(linkedQuote?.numero_cotizacion || linkedQuote?.id || '');
+      setPaymentClientName(ord.cliente?.nombre || '');
+      setPaymentClientUid((ord as any).creado_por_uid || (ord.cliente as any)?.id || '');
+      setPaymentAmount(String(pendingAmount > 0 ? pendingAmount : orderTotal));
+      setPaymentMethod('Yappy');
+      setPaymentDate(today);
+      setPaymentStatus('Confirmado');
+      setPaymentReference('');
+      setPaymentNotes('');
+      setIsPaymentModalOpen(true);
+      return;
+    }
+
+    setPaymentOrderId('');
+    setPaymentOrderCode('');
+    setPaymentQuoteId('');
+    setPaymentClientName('');
+    setPaymentClientUid('');
+    setPaymentAmount('');
+    setPaymentMethod('Yappy');
+    setPaymentDate(today);
+    setPaymentStatus('Confirmado');
+    setPaymentReference('');
+    setPaymentNotes('');
+    setIsPaymentModalOpen(true);
+  };
+
+  const openEditPaymentModal = (payment: ManagedPayment) => {
+    setEditingPayment(payment);
+    setPaymentOrderId(payment.solicitud_id || '');
+    setPaymentOrderCode(payment.solicitud_codigo || payment.solicitud_id || '');
+    setPaymentQuoteId(payment.cotizacion_codigo || payment.cotizacion_id || '');
+    setPaymentClientName(payment.cliente_nombre || '');
+    setPaymentClientUid(payment.cliente_uid || '');
+    setPaymentAmount(String(payment.monto ?? ''));
+    setPaymentMethod(payment.metodo || 'Yappy');
+    const dateStr =
+      payment.fecha && /^\d{4}-\d{2}-\d{2}/.test(payment.fecha)
+        ? payment.fecha.slice(0, 10)
+        : new Date().toISOString().slice(0, 10);
+    setPaymentDate(dateStr);
+    const normStatus =
+      String(payment.estado || '').toLowerCase() === 'pendiente' ? 'Pendiente' : 'Confirmado';
+    setPaymentStatus(normStatus);
+    setPaymentReference(payment.referencia || payment.referencia_transaccion || '');
+    setPaymentNotes(payment.notas || '');
+    setIsPaymentModalOpen(true);
+  };
+
+  const handleSelectOrderInPaymentModal = (selectedId: string) => {
+    setPaymentOrderId(selectedId);
+    const ord = orders.find((o) => o.id === selectedId);
+    if (ord) {
+      const code =
+        ord.numero_pedido ||
+        ord.consecutiveId ||
+        ord.orderNumber ||
+        ord.codigo_seguimiento ||
+        ord.id;
+      setPaymentOrderCode(code);
+      setPaymentClientName(ord.cliente?.nombre || '');
+      setPaymentClientUid((ord as any).creado_por_uid || (ord.cliente as any)?.id || '');
+      const linkedQuote = quotes.find(
+        (q) => q.solicitud_id === ord.id || (code && q.solicitud_codigo === code)
+      );
+      if (linkedQuote && !paymentQuoteId) {
+        setPaymentQuoteId(linkedQuote.numero_cotizacion || linkedQuote.id);
+      }
+      if (!paymentAmount) {
+        const orderTotal =
+          Number(ord.total_facturado ?? ord.precio_regular ?? ord.servicio_probable?.price ?? 35) ||
+          35;
+        const alreadyPaid = getConfirmedPaidForOrder(ord.id, code, linkedQuote?.id);
+        const pendingAmount = Math.max(0, Number((orderTotal - alreadyPaid).toFixed(2)));
+        setPaymentAmount(String(pendingAmount > 0 ? pendingAmount : orderTotal));
+      }
+    }
+  };
+
+  const handleSavePayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) return;
+
+    const montoNum = parseFloat(paymentAmount);
+    if (!Number.isFinite(montoNum) || montoNum <= 0) {
+      showToast('El monto del pago debe ser mayor a $0.00.', 'error');
+      return;
+    }
+
+    const resolvedOrder = orders.find(
+      (o) =>
+        o.id === paymentOrderId ||
+        (paymentOrderCode.trim() &&
+          (o.numero_pedido === paymentOrderCode.trim() ||
+            o.codigo_seguimiento === paymentOrderCode.trim()))
+    );
+    const resolvedOrderId = paymentOrderId.trim() || resolvedOrder?.id || paymentOrderCode.trim() || 'MANUAL';
+    const resolvedOrderCode =
+      paymentOrderCode.trim() ||
+      resolvedOrder?.numero_pedido ||
+      resolvedOrder?.codigo_seguimiento ||
+      resolvedOrderId;
+    const resolvedClientUid =
+      paymentClientUid.trim() ||
+      (resolvedOrder as any)?.creado_por_uid ||
+      (resolvedOrder?.cliente as any)?.id ||
+      undefined;
+    const resolvedClientName =
+      paymentClientName.trim() || resolvedOrder?.cliente?.nombre || 'Cliente FIXIT';
+
+    const isoDate = paymentDate
+      ? paymentDate.length === 10
+        ? `${paymentDate}T12:00:00.000Z`
+        : paymentDate
+      : new Date().toISOString();
+
+    const authorName = user?.displayName || user?.nombre || user?.email || 'Admin FIXIT';
+    const refText = paymentReference.trim() || 'SIN-REF';
+
+    setIsSavingPayment(true);
+    try {
+      if (editingPayment) {
+        const patch: Partial<ManagedPayment> = {
+          solicitud_id: resolvedOrderId,
+          solicitud_codigo: resolvedOrderCode,
+          ...(paymentQuoteId.trim()
+            ? { cotizacion_id: paymentQuoteId.trim(), cotizacion_codigo: paymentQuoteId.trim() }
+            : { cotizacion_id: '', cotizacion_codigo: '' }),
+          ...(resolvedClientUid ? { cliente_uid: resolvedClientUid } : {}),
+          cliente_nombre: resolvedClientName,
+          monto: montoNum,
+          metodo: paymentMethod,
+          estado: paymentStatus,
+          fecha: isoDate,
+          referencia: refText,
+          referencia_transaccion: refText,
+          notas: paymentNotes.trim(),
+        };
+        const updated = await updatePaymentInFirestore(editingPayment.id, patch, authorName);
+        setPayments((prev) =>
+          prev.map((p) => (p.id === editingPayment.id ? { ...p, ...patch, ...(updated || {}) } : p))
+        );
+        showToast(`Pago ${editingPayment.id} actualizado ($${montoNum.toFixed(2)}).`, 'success');
+      } else {
+        const created = await recordPaymentInFirestore(
+          {
+            solicitud_id: resolvedOrderId,
+            solicitud_codigo: resolvedOrderCode,
+            ...(paymentQuoteId.trim()
+              ? { cotizacion_id: paymentQuoteId.trim(), cotizacion_codigo: paymentQuoteId.trim() }
+              : {}),
+            ...(resolvedClientUid ? { cliente_uid: resolvedClientUid } : {}),
+            cliente_nombre: resolvedClientName,
+            monto: montoNum,
+            metodo: paymentMethod,
+            estado: paymentStatus,
+            fecha: isoDate,
+            referencia: refText,
+            referencia_transaccion: refText,
+            usuario_registro: authorName,
+            ...(paymentNotes.trim() ? { notas: paymentNotes.trim() } : {}),
+          },
+          authorName
+        );
+        setPayments((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
+        showToast(
+          `Pago registrado por $${montoNum.toFixed(2)} (${paymentStatus}).`,
+          'success'
+        );
+      }
+      setIsPaymentModalOpen(false);
+      setEditingPayment(null);
+    } catch (err: any) {
+      showToast(`Error guardando pago: ${err?.message || 'Error'}`, 'error');
+    } finally {
+      setIsSavingPayment(false);
+    }
+  };
+
+  const handleDeletePayment = async (payment: ManagedPayment) => {
+    if (!isAdmin) return;
+    const confirmed =
+      typeof window !== 'undefined' && typeof window.confirm === 'function'
+        ? window.confirm(
+            `¿Eliminar el registro de pago ${payment.id} por $${Number(payment.monto || 0).toFixed(2)} USD? Esta acción se registrará en auditoría.`
+          )
+        : true;
+    if (!confirmed) return;
+
+    try {
+      const authorName = user?.displayName || user?.nombre || user?.email || 'Admin FIXIT';
+      await deletePaymentInFirestore(payment.id, authorName);
+      setPayments((prev) => prev.filter((p) => p.id !== payment.id));
+      showToast(`Pago ${payment.id} eliminado.`, 'success');
+    } catch (err: any) {
+      showToast(`Error eliminando pago: ${err?.message || 'Error'}`, 'error');
     }
   };
 
@@ -1085,13 +1570,13 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     );
   }
 
-  if (!isAdmin) {
+  if (!hasAdminOrOperatorAccess) {
     return (
       <div className="max-w-md mx-auto my-12 p-6 bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl text-center space-y-4 shadow-sm">
         <AlertCircle className="w-12 h-12 text-[#B98A43] mx-auto" />
         <h2 className="font-serif font-bold text-xl text-[#1F2421]">Acceso Restringido</h2>
         <p className="text-xs text-[#756A5D] leading-relaxed">
-          Esta vista está reservada exclusivamente para usuarios administradores (role === 'ADMIN').
+          Esta vista está reservada exclusivamente para usuarios administradores y operadores (role === 'ADMIN' | 'OPERATOR').
         </p>
         <button
           onClick={onGoHome}
@@ -1176,7 +1661,35 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       </header>
 
       {/* TARJETAS DE MÉTRICAS */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
+        <div
+          onClick={() => setActiveTab('payments')}
+          className="bg-[#FFFEFA] border-2 border-[#53653D]/40 hover:border-[#53653D] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2 cursor-pointer transition-all"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[#53653D]">
+              Ingresos confirmados (mes actual)
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-[#53653D]/15 text-[#53653D] flex items-center justify-center shrink-0">
+              <Banknote className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="font-serif font-bold text-2xl sm:text-3xl text-[#53653D]">
+              {loadingPayments
+                ? '...'
+                : `$${confirmedCurrentMonthRevenue.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}`}
+            </span>
+            <span className="text-xs font-semibold text-[#756A5D]">USD</span>
+          </div>
+          <p className="text-[11px] text-[#53653D] font-semibold">
+            {confirmedCurrentMonthCount} {confirmedCurrentMonthCount === 1 ? 'pago real' : 'pagos reales'} ({currentMonthPrefix})
+          </p>
+        </div>
+
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[#756A5D]">Órdenes Totales</span>
@@ -1198,7 +1711,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
         <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#756A5D]">Facturación Pedidos</span>
+            <span className="text-xs font-semibold text-[#756A5D]">
+              Facturación Pedidos (proyectado)
+            </span>
             <div className="w-8 h-8 rounded-xl bg-[#53653D]/10 text-[#53653D] flex items-center justify-center">
               <DollarSign className="w-4 h-4" />
             </div>
@@ -1209,7 +1724,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </span>
             <span className="text-xs font-semibold text-[#756A5D]">USD</span>
           </div>
-          <p className="text-[11px] text-[#756A5D]">Ingresos de órdenes no canceladas</p>
+          <p className="text-[11px] text-[#756A5D]">Estimado de órdenes no canceladas</p>
         </div>
 
         <div
@@ -1217,7 +1732,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           className="bg-[#FFFEFA] border border-[#0B72D9]/40 hover:border-[#0B72D9] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2 cursor-pointer transition-all"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-[#082D60]">Cotizado por Fixers</span>
+            <span className="text-xs font-bold text-[#082D60]">
+              Cotizado por Fixers (proyectado)
+            </span>
             <div className="w-8 h-8 rounded-xl bg-[#082D60]/10 text-[#082D60] flex items-center justify-center">
               <FileText className="w-4 h-4" />
             </div>
@@ -1249,7 +1766,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           <p className="text-[11px] text-[#756A5D]">Colección 'users' (clientes)</p>
         </div>
 
-        <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2 col-span-2 lg:col-span-1">
+        <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-[#756A5D]">Total Fixers</span>
             <div className="w-8 h-8 rounded-xl bg-[#B98A43]/10 text-[#B98A43] flex items-center justify-center">
@@ -1278,13 +1795,24 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           <span>Resumen y KPIs</span>
         </button>
         <button
+          onClick={() => setActiveTab('payments')}
+          className={`flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+            activeTab === 'payments'
+              ? 'bg-[#53653D] text-white shadow-xs'
+              : 'text-[#756A5D] hover:text-[#1F2421]'
+          }`}
+        >
+          <Banknote className="w-4 h-4" />
+          <span>Pagos e Ingresos ({payments.length})</span>
+        </button>
+        <button
           onClick={() => setActiveTab('quotes')}
           className={`flex-1 sm:flex-initial py-2.5 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
             activeTab === 'quotes' ? 'bg-[#082D60] text-white shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
           }`}
         >
           <FileText className="w-4 h-4" />
-          <span>Cotizaciones e Ingresos ({quotes.length})</span>
+          <span>Cotizaciones ({quotes.length})</span>
         </button>
         <button
           onClick={() => setActiveTab('agenda')}
@@ -1710,6 +2238,17 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                                 <MessageCircle className="w-3.5 h-3.5" />
                               </a>
                             )}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => openNewPaymentModal({ order: ord })}
+                                title="Registrar pago para este pedido"
+                                className="py-1 px-2.5 rounded-lg bg-[#53653D]/15 text-[#53653D] hover:bg-[#53653D]/25 transition-colors cursor-pointer text-[11px] font-bold flex items-center gap-1"
+                              >
+                                <DollarSign className="w-3.5 h-3.5" />
+                                <span>Registrar pago</span>
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => openAssignModal(ord)}
@@ -2111,21 +2650,291 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                               );
                             })()}
                           </td>
-                          <td className="py-3.5 px-4 text-right">
-                            {waPhone ? (
-                              <a
-                                href={`https://wa.me/${waPhone}?text=${encodeURIComponent(
-                                  `Hola ${quote.cliente_nombre || ''}, le escribimos de FIXIT Panamá respecto a su cotización ${quote.numero_cotizacion} por $${Number(quote.total || 0).toFixed(2)} USD.`
-                                )}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] font-bold text-[11px] transition-colors"
-                              >
-                                <Phone className="w-3 h-3" />
-                                <span>WhatsApp</span>
-                              </a>
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {waPhone && (
+                                <a
+                                  href={`https://wa.me/${waPhone}?text=${encodeURIComponent(
+                                    `Hola ${quote.cliente_nombre || ''}, le escribimos de FIXIT Panamá respecto a su cotización ${quote.numero_cotizacion} por $${Number(quote.total || 0).toFixed(2)} USD.`
+                                  )}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 py-1.5 px-2.5 rounded-lg bg-[#25D366]/15 hover:bg-[#25D366]/25 text-[#128C7E] font-bold text-[11px] transition-colors"
+                                >
+                                  <Phone className="w-3 h-3" />
+                                  <span>WhatsApp</span>
+                                </a>
+                              )}
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => openNewPaymentModal({ quote })}
+                                  title="Registrar pago asociado a esta cotización"
+                                  className="py-1.5 px-2.5 rounded-lg bg-[#53653D]/15 hover:bg-[#53653D]/25 text-[#53653D] font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                                >
+                                  <DollarSign className="w-3 h-3" />
+                                  <span>Registrar pago</span>
+                                </button>
+                              )}
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteQuote(quote)}
+                                  title="Eliminar cotización"
+                                  className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* TAB 5: PAGOS E INGRESOS REALES (COLECCIÓN PAYMENTS)            */}
+      {/* ============================================================== */}
+      {activeTab === 'payments' && (
+        <div className="space-y-4">
+          {/* Controles mensuales y tarjetas de resumen */}
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="font-serif font-bold text-xl text-[#1F2421] flex items-center gap-2">
+                  <Banknote className="w-5 h-5 text-[#53653D]" />
+                  <span>Control Mensual de Pagos e Ingresos Reales</span>
+                </h2>
+                <p className="text-xs text-[#756A5D] mt-0.5">
+                  Solo los pagos en estado <strong>Confirmado</strong> se contabilizan como ingreso real. Los pedidos de prueba sin pago no inflan esta métrica.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 bg-[#F6F4EF] border border-[#DED4C5] rounded-xl px-3 py-1.5 text-xs font-semibold text-[#1F2421]">
+                  <Calendar className="w-3.5 h-3.5 text-[#082D60]" />
+                  <span>Mes:</span>
+                  <input
+                    type="month"
+                    value={paymentMonthFilter}
+                    onChange={(e) => setPaymentMonthFilter(e.target.value)}
+                    className="bg-transparent font-mono font-bold text-[#082D60] focus:outline-hidden cursor-pointer"
+                  />
+                </label>
+
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => openNewPaymentModal()}
+                    className="py-2 px-3.5 rounded-xl bg-[#53653D] hover:bg-[#435331] text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Registrar Pago</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-[#53653D]/10 border border-[#53653D]/30 rounded-2xl p-4">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#53653D] block">
+                  Confirmado (mes {paymentMonthFilter || 'todos'})
+                </span>
+                <span className="font-serif font-bold text-2xl text-[#53653D] mt-1 block">
+                  ${monthlyPaymentsSummary.confirmedSum.toFixed(2)} USD
+                </span>
+                <span className="text-[11px] font-semibold text-[#53653D] mt-0.5 block">
+                  {monthlyPaymentsSummary.confirmedCount}{' '}
+                  {monthlyPaymentsSummary.confirmedCount === 1
+                    ? 'pago confirmado'
+                    : 'pagos confirmados'}
+                </span>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-800 block">
+                  Pendiente (mes {paymentMonthFilter || 'todos'})
+                </span>
+                <span className="font-serif font-bold text-2xl text-amber-800 mt-1 block">
+                  ${monthlyPaymentsSummary.pendingSum.toFixed(2)} USD
+                </span>
+                <span className="text-[11px] font-semibold text-amber-700 mt-0.5 block">
+                  {monthlyPaymentsSummary.pendingCount}{' '}
+                  {monthlyPaymentsSummary.pendingCount === 1
+                    ? 'pago pendiente'
+                    : 'pagos pendientes'}
+                </span>
+              </div>
+
+              <div className="bg-[#F6F4EF] border border-[#DED4C5] rounded-2xl p-4">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#756A5D] block">
+                  Total Registros en el Mes
+                </span>
+                <span className="font-serif font-bold text-2xl text-[#082D60] mt-1 block">
+                  ${(monthlyPaymentsSummary.confirmedSum + monthlyPaymentsSummary.pendingSum).toFixed(2)} USD
+                </span>
+                <span className="text-[11px] text-[#756A5D] mt-0.5 block">
+                  {filteredPayments.length} {filteredPayments.length === 1 ? 'transacción listada' : 'transacciones listadas'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Buscador de pagos */}
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-4 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-[#756A5D] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Buscar por pedido, cotización, cliente, método o referencia..."
+                value={paymentSearch}
+                onChange={(e) => setPaymentSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] text-xs text-[#1F2421] focus:outline-hidden focus:border-[#0B72D9]"
+              />
+            </div>
+            {paymentMonthFilter && (
+              <button
+                type="button"
+                onClick={() => setPaymentMonthFilter('')}
+                className="py-2 px-3 rounded-xl border border-[#DED4C5] hover:bg-[#F6F4EF] text-xs font-semibold text-[#756A5D] cursor-pointer"
+              >
+                Ver todos los meses
+              </button>
+            )}
+          </div>
+
+          {/* Tabla de pagos */}
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#F6F4EF] border-b border-[#DED4C5] text-[10px] font-bold uppercase tracking-wider text-[#756A5D]">
+                    <th className="py-3.5 px-4">Fecha</th>
+                    <th className="py-3.5 px-4">Pedido</th>
+                    <th className="py-3.5 px-4">Cotización</th>
+                    <th className="py-3.5 px-4">Cliente</th>
+                    <th className="py-3.5 px-4">Método</th>
+                    <th className="py-3.5 px-4">Monto</th>
+                    <th className="py-3.5 px-4">Estado</th>
+                    <th className="py-3.5 px-4">Referencia</th>
+                    <th className="py-3.5 px-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#DED4C5]/60 text-xs">
+                  {filteredPayments.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-10 text-center text-[#756A5D]">
+                        No hay pagos registrados para el período o filtro seleccionado.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredPayments.map((pay) => {
+                      const rawStatus = String(pay.estado || '').toLowerCase();
+                      const isConfirmed = rawStatus === 'confirmado';
+                      const isPending = rawStatus === 'pendiente';
+                      const linkedOrd = orders.find(
+                        (o) =>
+                          o.id === pay.solicitud_id ||
+                          (pay.solicitud_codigo &&
+                            (o.numero_pedido === pay.solicitud_codigo ||
+                              o.codigo_seguimiento === pay.solicitud_codigo))
+                      );
+                      const displayClient =
+                        pay.cliente_nombre || linkedOrd?.cliente?.nombre || 'Cliente FIXIT';
+                      const displayDate = pay.fecha
+                        ? pay.fecha.slice(0, 10)
+                        : '—';
+
+                      return (
+                        <tr key={pay.id} className="hover:bg-[#F6F4EF]/60 transition-colors">
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <span className="font-mono font-semibold text-[#1F2421] block">
+                              {displayDate}
+                            </span>
+                            <span className="text-[10px] text-[#756A5D] font-mono">
+                              {pay.id}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <span className="font-mono font-bold text-[#082D60]">
+                              {pay.solicitud_codigo || pay.solicitud_id || '—'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            {pay.cotizacion_codigo || pay.cotizacion_id ? (
+                              <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-[#082D60]/10 text-[#082D60]">
+                                {pay.cotizacion_codigo || pay.cotizacion_id}
+                              </span>
                             ) : (
                               <span className="text-[11px] text-[#756A5D]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="font-bold text-[#1F2421] block">
+                              {displayClient}
+                            </span>
+                            {pay.notas && (
+                              <span className="text-[10px] text-[#756A5D] truncate block max-w-[180px]">
+                                {pay.notas}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <span className="font-semibold text-[#1F2421]">
+                              {pay.metodo}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <span className="font-serif font-bold text-sm text-[#1F2421]">
+                              ${Number(pay.monto || 0).toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <span
+                              className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
+                                isConfirmed
+                                  ? 'bg-[#53653D]/15 text-[#53653D] border-[#53653D]/30'
+                                  : isPending
+                                  ? 'bg-amber-100 text-amber-800 border-amber-200'
+                                  : 'bg-rose-100 text-rose-700 border-rose-200'
+                              }`}
+                            >
+                              {isConfirmed ? 'Confirmado' : isPending ? 'Pendiente' : pay.estado}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap font-mono text-[11px] text-[#756A5D]">
+                            {pay.referencia || pay.referencia_transaccion || '—'}
+                          </td>
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            {isAdmin ? (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditPaymentModal(pay)}
+                                  title="Editar pago"
+                                  className="py-1 px-2.5 rounded-lg border border-[#DED4C5] hover:bg-[#F6F4EF] text-[#082D60] font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                  <span>Editar</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePayment(pay)}
+                                  title="Eliminar pago"
+                                  className="p-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-[#756A5D]">Solo lectura</span>
                             )}
                           </td>
                         </tr>
@@ -2282,6 +3091,230 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 6: REGISTRAR / EDITAR PAGO REAL (COLECCIÓN PAYMENTS)     */}
+      {/* ============================================================== */}
+      {isPaymentModalOpen && isAdmin && (
+        <div className="fixed inset-0 z-50 bg-[#082D60]/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#DED4C5]/60 pb-3">
+              <div>
+                <h3 className="font-serif font-bold text-lg text-[#1F2421] flex items-center gap-2">
+                  <Banknote className="w-5 h-5 text-[#53653D]" />
+                  <span>{editingPayment ? 'Editar Pago Registrado' : 'Registrar Nuevo Pago'}</span>
+                </h3>
+                <p className="text-[11px] text-[#756A5D]">
+                  {editingPayment
+                    ? `Modificando transacción ${editingPayment.id}`
+                    : 'Registra un abono, anticipo 50% o saldo final confirmado'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPaymentModalOpen(false);
+                  setEditingPayment(null);
+                }}
+              >
+                <X className="w-5 h-5 text-[#756A5D]" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleSavePayment}
+              className="space-y-3 text-xs max-h-[70vh] overflow-y-auto pr-1"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold text-[#1F2421]">
+                    Seleccionar Pedido Existente
+                  </span>
+                  <select
+                    value={paymentOrderId}
+                    onChange={(e) => handleSelectOrderInPaymentModal(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-medium"
+                  >
+                    <option value="">-- Pedido manual / otro --</option>
+                    {orders.map((ord) => {
+                      const code =
+                        ord.numero_pedido ||
+                        ord.consecutiveId ||
+                        ord.orderNumber ||
+                        ord.codigo_seguimiento ||
+                        ord.id;
+                      return (
+                        <option key={ord.id} value={ord.id}>
+                          {code} — {ord.cliente?.nombre || 'Cliente'} ($
+                          {(ord.total_facturado ?? ord.precio_regular ?? 35).toFixed(2)})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold text-[#1F2421]">
+                    Código de Pedido *
+                  </span>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. FIX-2611-0001 o MANUAL"
+                    value={paymentOrderCode}
+                    onChange={(e) => setPaymentOrderCode(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-mono"
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold text-[#1F2421]">
+                    Cotización vinculada (opcional)
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Ej. FIXIT-2026-11-100"
+                    value={paymentQuoteId}
+                    onChange={(e) => setPaymentQuoteId(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-mono"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold text-[#1F2421]">
+                    Nombre del Cliente
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Ej. Juan Pérez"
+                    value={paymentClientName}
+                    onChange={(e) => setPaymentClientName(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]"
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold text-[#1F2421]">
+                    Monto (USD) *
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    placeholder="0.00"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-bold text-sm text-[#082D60]"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold text-[#1F2421]">
+                    Método de Pago *
+                  </span>
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                    className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-semibold"
+                  >
+                    {PAYMENT_METHOD_OPTIONS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold text-[#1F2421]">
+                    Estado *
+                  </span>
+                  <select
+                    value={paymentStatus}
+                    onChange={(e) =>
+                      setPaymentStatus(e.target.value as 'Pendiente' | 'Confirmado')
+                    }
+                    className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-bold"
+                  >
+                    <option value="Confirmado">Confirmado</option>
+                    <option value="Pendiente">Pendiente</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold text-[#1F2421]">
+                    Fecha del Pago *
+                  </span>
+                  <input
+                    type="date"
+                    required
+                    value={paymentDate}
+                    onChange={(e) => setPaymentDate(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold text-[#1F2421]">
+                    Referencia / Comprobante (opcional)
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Ej. YAPPY-849201 / ACH-BG"
+                    value={paymentReference}
+                    onChange={(e) => setPaymentReference(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-mono"
+                  />
+                </label>
+              </div>
+
+              <label className="block space-y-1">
+                <span className="text-[11px] font-bold text-[#1F2421]">
+                  Notas (opcional)
+                </span>
+                <textarea
+                  rows={2}
+                  placeholder="Ej. Anticipo 50% recibido por Yappy Comercial..."
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]"
+                />
+              </label>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#DED4C5]/60">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPaymentModalOpen(false);
+                    setEditingPayment(null);
+                  }}
+                  className="py-2.5 px-4 border border-[#DED4C5] rounded-xl font-semibold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingPayment}
+                  className="py-2.5 px-5 rounded-xl bg-[#53653D] hover:bg-[#435331] disabled:opacity-50 text-white font-bold cursor-pointer"
+                >
+                  {isSavingPayment
+                    ? 'Guardando...'
+                    : editingPayment
+                    ? 'Guardar Cambios'
+                    : 'Registrar Pago'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

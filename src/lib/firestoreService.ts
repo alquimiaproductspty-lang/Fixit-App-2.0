@@ -41,7 +41,9 @@ import {
   TechnicianAssignment,
   AssignTechnicianInput,
   AssignmentStatus,
-  QuoteStatus
+  QuoteStatus,
+  PaymentMethod,
+  PaymentStatus
 } from '../types';
 import { FIXIT_CATALOG } from '../data/catalog';
 
@@ -127,7 +129,21 @@ export async function logAuditEvent(
     usuario_uid: authorUid || auth.currentUser?.uid || 'system',
     rol: rol || 'Administrador',
     accion,
-    registro_tipo: (coleccionName === 'users' ? 'usuario' : coleccionName === 'requests' ? 'solicitud' : coleccionName === 'services' ? 'servicio' : 'sistema') as any,
+    registro_tipo: (
+      coleccionName === 'users'
+        ? 'usuario'
+        : coleccionName === 'requests' || coleccionName === 'orders'
+        ? 'solicitud'
+        : coleccionName === 'services'
+        ? 'servicio'
+        : coleccionName === 'quotes'
+        ? 'cotizacion'
+        : coleccionName === 'payments'
+        ? 'pago'
+        : coleccionName === 'technicians' || coleccionName === 'fixers'
+        ? 'tecnico'
+        : 'sistema'
+    ) as any,
     registro_id: documentoId,
     entidad: coleccionName,
     coleccion: coleccionName,
@@ -1115,6 +1131,34 @@ export async function updateQuoteInFirestore(
   return null;
 }
 
+export async function deleteQuoteInFirestore(
+  id: string,
+  authorName: string = 'ADMIN'
+): Promise<{ success: boolean }> {
+  try {
+    await deleteDoc(doc(db, 'quotes', id));
+  } catch (err) {
+    console.warn('[Quotes] Firestore delete fallback:', err);
+  }
+
+  await logAuditEvent(
+    'ELIMINAR_COTIZACION',
+    'quotes',
+    id,
+    authorName,
+    auth.currentUser?.uid,
+    'ADMIN',
+    { cotizacion_id: id }
+  );
+
+  const cached = loadFromCache<ManagedQuote[]>(CACHE_KEY_QUOTES) || [];
+  saveToCache(
+    CACHE_KEY_QUOTES,
+    cached.filter((q) => q.id !== id)
+  );
+  return { success: true };
+}
+
 // ============================================================================
 // OPERATIONAL TECHNICIAN ASSIGNMENTS (technician_assignments/{assignmentId})
 // ============================================================================
@@ -1423,30 +1467,150 @@ export async function recordPaymentInFirestore(
   };
 
   try {
-    await setDoc(doc(db, 'payments', paymentId), newPayment);
-    await logAuditEvent(
-      'REGISTRAR_PAGO',
-      'payments',
-      paymentId,
-      authorName,
-      auth.currentUser?.uid,
-      'Operador',
-      {
-        solicitud_id: newPayment.solicitud_id,
-        monto: newPayment.monto,
-        metodo: newPayment.metodo,
-        estado: newPayment.estado,
-        referencia: newPayment.referencia,
-      }
-    );
+    await setDoc(doc(db, 'payments', paymentId), sanitizeForFirestore(newPayment));
   } catch (err) {
     console.warn('[Payments] Firestore setDoc fallback:', err);
   }
+
+  await logAuditEvent(
+    'REGISTRAR_PAGO',
+    'payments',
+    paymentId,
+    authorName,
+    auth.currentUser?.uid,
+    'Operador',
+    {
+      solicitud_id: newPayment.solicitud_id,
+      monto: newPayment.monto,
+      metodo: newPayment.metodo,
+      estado: newPayment.estado,
+      referencia: newPayment.referencia,
+    }
+  );
 
   const cached = loadFromCache<ManagedPayment[]>(CACHE_KEY_PAYMENTS) || [];
   const updated = [newPayment, ...cached.filter((p) => p.id !== paymentId)];
   saveToCache(CACHE_KEY_PAYMENTS, updated);
   return newPayment;
+}
+
+const VALID_PAYMENT_METHODS: PaymentMethod[] = [
+  'Pago en línea',
+  'MiPOS BAC',
+  'Yappy',
+  'Transferencia ACH',
+  'Efectivo',
+  'Tarjeta / Terminal',
+  'Pendiente',
+];
+
+const VALID_PAYMENT_STATUSES: PaymentStatus[] = [
+  'Pendiente',
+  'Confirmado',
+  'Fallido',
+  'Reembolsado',
+  'pendiente',
+  'confirmado',
+  'rechazado',
+  'reembolsado',
+];
+
+export async function updatePaymentInFirestore(
+  id: string,
+  patch: Partial<ManagedPayment>,
+  authorName: string = 'Operador FIXIT'
+): Promise<ManagedPayment | null> {
+  const cleanId = id?.trim();
+  if (!cleanId) {
+    throw new Error('updatePaymentInFirestore: id es requerido.');
+  }
+
+  if (patch.monto !== undefined) {
+    const montoNum = Number(patch.monto);
+    if (!Number.isFinite(montoNum) || montoNum <= 0) {
+      throw new Error('updatePaymentInFirestore: el monto debe ser mayor a 0.');
+    }
+  }
+
+  if (patch.metodo !== undefined && !VALID_PAYMENT_METHODS.includes(patch.metodo)) {
+    throw new Error(`updatePaymentInFirestore: método de pago inválido (${patch.metodo}).`);
+  }
+
+  if (patch.estado !== undefined && !VALID_PAYMENT_STATUSES.includes(patch.estado)) {
+    throw new Error(`updatePaymentInFirestore: estado de pago inválido (${patch.estado}).`);
+  }
+
+  const now = new Date().toISOString();
+  const updates: Partial<ManagedPayment> = {
+    ...patch,
+    ...(patch.monto !== undefined ? { monto: Number(patch.monto) } : {}),
+    ...(patch.referencia !== undefined
+      ? { referencia_transaccion: patch.referencia_transaccion ?? patch.referencia }
+      : {}),
+    ...(patch.referencia_transaccion !== undefined
+      ? { referencia: patch.referencia ?? patch.referencia_transaccion }
+      : {}),
+    updatedAt: now,
+  };
+
+  try {
+    await updateDoc(doc(db, 'payments', cleanId), sanitizeForFirestore(updates) as Record<string, any>);
+  } catch (err) {
+    console.warn('[Payments] Firestore updateDoc fallback:', err);
+  }
+
+  await logAuditEvent(
+    'ACTUALIZAR_PAGO',
+    'payments',
+    cleanId,
+    authorName,
+    auth.currentUser?.uid,
+    'Operador',
+    updates
+  );
+
+  const cached = loadFromCache<ManagedPayment[]>(CACHE_KEY_PAYMENTS) || [];
+  const idx = cached.findIndex((p) => p.id === cleanId);
+  if (idx >= 0) {
+    const updated = { ...cached[idx], ...updates };
+    cached[idx] = updated;
+    saveToCache(CACHE_KEY_PAYMENTS, cached);
+    return updated;
+  }
+  return null;
+}
+
+export async function deletePaymentInFirestore(
+  id: string,
+  authorName: string = 'ADMIN'
+): Promise<{ success: boolean }> {
+  const cleanId = id?.trim();
+  if (!cleanId) {
+    throw new Error('deletePaymentInFirestore: id es requerido.');
+  }
+
+  try {
+    await deleteDoc(doc(db, 'payments', cleanId));
+  } catch (err) {
+    console.warn('[Payments] Firestore deleteDoc fallback:', err);
+  }
+
+  await logAuditEvent(
+    'ELIMINAR_PAGO',
+    'payments',
+    cleanId,
+    authorName,
+    auth.currentUser?.uid,
+    'ADMIN',
+    { payment_id: cleanId }
+  );
+
+  const cached = loadFromCache<ManagedPayment[]>(CACHE_KEY_PAYMENTS) || [];
+  saveToCache(
+    CACHE_KEY_PAYMENTS,
+    cached.filter((p) => p.id !== cleanId)
+  );
+  return { success: true };
 }
 
 // ============================================================================

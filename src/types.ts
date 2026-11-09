@@ -287,6 +287,9 @@ export interface ManagedPayment {
   solicitud_id: string;
   solicitud_codigo: string;
   cotizacion_id?: string;
+  cotizacion_codigo?: string;
+  cliente_uid?: string;
+  cliente_nombre?: string;
   monto: number;
   metodo: PaymentMethod;
   estado: PaymentStatus;
@@ -296,6 +299,7 @@ export interface ManagedPayment {
   usuario_registro: string;
   notas?: string;
   comprobante_url?: string;
+  updatedAt?: string;
 }
 
 export interface AuditLogEntry {
