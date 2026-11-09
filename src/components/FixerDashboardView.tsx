@@ -8,8 +8,18 @@ import {
   doc,
   updateDoc,
   getDocs,
+  getDoc,
 } from 'firebase/firestore';
 import { db, AuthState } from '../lib/firebase';
+import {
+  DEFAULT_COMMISSION_RATE,
+  getCommissionBase,
+  calcCommission,
+  calcNet,
+  isLaborCommissionBase,
+  normalizeRate,
+  round2,
+} from '../lib/commissions';
 import {
   isSoundEnabled,
   setSoundEnabled,
@@ -85,8 +95,20 @@ interface FixerOrder {
   tecnico_nombre?: string;
   direccion?: string;
   fecha?: string;
+  createdAt?: any;
   horario_preferido?: string;
   notas_internas?: string;
+}
+
+function getFixerOrderMonthPrefix(ord: FixerOrder): string {
+  const raw = ord.fecha || ord.createdAt;
+  if (!raw) return '';
+  if (typeof raw === 'string' && /^\d{4}-\d{2}/.test(raw.trim())) {
+    return raw.trim().slice(0, 7);
+  }
+  const dt = raw?.toDate ? raw.toDate() : new Date(raw);
+  if (Number.isNaN(dt.getTime())) return '';
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
 }
 
 const FIXER_STATUS_OPTIONS: { value: OfficialRequestStatus; label: string }[] = [
@@ -136,6 +158,10 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
 
   // Quotes emitted
   const [quotes, setQuotes] = useState<ManagedQuote[]>([]);
+
+  // Commission rate from settings/fixer_commission (default 0.15 = 15%)
+  const [commissionRate, setCommissionRate] = useState<number>(DEFAULT_COMMISSION_RATE);
+  const [usingDefaultCommission, setUsingDefaultCommission] = useState<boolean>(false);
 
   // Sound Alert State & Known Assigned Order IDs Ref (Uber-style foreground alert)
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
@@ -261,6 +287,47 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
     });
   }, []);
 
+  // Load Fixit commission rate from settings/fixer_commission (signed-in read, fallback 0.15)
+  useEffect(() => {
+    let unsubCommission: (() => void) | null = null;
+    const ref = doc(db, 'settings', 'fixer_commission');
+
+    const applyCommissionSnap = (exists: boolean, data?: Record<string, any>) => {
+      if (exists && data && typeof data.rate === 'number' && Number.isFinite(data.rate)) {
+        setCommissionRate(normalizeRate(data.rate));
+        setUsingDefaultCommission(false);
+      } else {
+        setCommissionRate(DEFAULT_COMMISSION_RATE);
+        setUsingDefaultCommission(true);
+      }
+    };
+
+    try {
+      unsubCommission = onSnapshot(
+        ref,
+        (snap) => {
+          applyCommissionSnap(snap.exists(), snap.data());
+        },
+        async () => {
+          try {
+            const snap = await getDoc(ref);
+            applyCommissionSnap(snap.exists(), snap.data());
+          } catch {
+            applyCommissionSnap(false);
+          }
+        }
+      );
+    } catch {
+      getDoc(ref)
+        .then((snap) => applyCommissionSnap(snap.exists(), snap.data()))
+        .catch(() => applyCommissionSnap(false));
+    }
+
+    return () => {
+      if (unsubCommission) unsubCommission();
+    };
+  }, []);
+
   // Helper to check if an order is assigned to the current fixer
   const isOrderAssignedToMe = (ord: FixerOrder): boolean => {
     if (ord.tecnico_id && matchedFixerIds.includes(ord.tecnico_id)) return true;
@@ -355,6 +422,40 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
     () => myQuotes.reduce((acc, q) => acc + (Number(q.total) || 0), 0),
     [myQuotes]
   );
+
+  const currentMonthPrefix = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  const commissionPctLabel = useMemo(() => round2(commissionRate * 100), [commissionRate]);
+
+  // Triple sumado sobre pedidos asignados al fixer del mes actual (mes = fecha de creación del pedido)
+  const myMonthlyEarnings = useMemo(() => {
+    let facturado = 0;
+    let comision = 0;
+    let neto = 0;
+    let count = 0;
+
+    orders.forEach((ord) => {
+      if (!isOrderAssignedToMe(ord)) return;
+      const st = normalizeStatus(ord.estado);
+      if (st === 'CANCELADA' || st === 'ARCHIVADA') return;
+      const ordMonth = getFixerOrderMonthPrefix(ord) || currentMonthPrefix;
+      if (ordMonth !== currentMonthPrefix) return;
+
+      const base = getCommissionBase(ord);
+      const com = calcCommission(base, commissionRate);
+      const net = calcNet(base, commissionRate);
+
+      facturado = round2(facturado + base);
+      comision = round2(comision + com);
+      neto = round2(neto + net);
+      count += 1;
+    });
+
+    return { facturado, comision, neto, count };
+  }, [orders, matchedFixerIds, commissionRate, currentMonthPrefix]);
 
   // Filter catalog services
   const catalogCategories = useMemo(() => {
@@ -596,6 +697,59 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
           </div>
         </div>
 
+        {/* Cabecera "Mis ganancias (mes)" — Transparencia de Comisión Fixit */}
+        <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-4 shadow-2xs space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <DollarSign className="w-4 h-4 text-[#53653D]" />
+              <h2 className="font-serif font-bold text-base text-[#1F2421]">
+                Mis ganancias (mes)
+              </h2>
+              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#082D60]/10 text-[#082D60]">
+                {myMonthlyEarnings.count}{' '}
+                {myMonthlyEarnings.count === 1 ? 'asignado activo' : 'asignados activos'} ({currentMonthPrefix})
+              </span>
+              {usingDefaultCommission && (
+                <span className="text-[10px] font-semibold text-[#756A5D] bg-[#F6F4EF] border border-[#DED4C5] px-2 py-0.5 rounded-full">
+                  Tasa pactada por defecto ({commissionPctLabel}%)
+                </span>
+              )}
+            </div>
+            <span className="text-[11px] text-[#756A5D]">
+              Nota: el mes corresponde a la fecha de creación del pedido (materiales desglosados excluidos de comisión).
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="p-3 rounded-xl bg-[#F6F4EF] border border-[#DED4C5]/80">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#756A5D] block">
+                Total cliente (mes)
+              </span>
+              <span className="font-serif font-bold text-xl text-[#1F2421] mt-0.5 block">
+                ${myMonthlyEarnings.facturado.toFixed(2)} USD
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#F6F4EF] border border-[#DED4C5]/80">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#B98A43] block">
+                Comisión ({commissionPctLabel}%)
+              </span>
+              <span className="font-serif font-bold text-xl text-[#B98A43] mt-0.5 block">
+                -${myMonthlyEarnings.comision.toFixed(2)} USD
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#53653D]/10 border border-[#53653D]/30">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#53653D] block">
+                Tu neto (mes)
+              </span>
+              <span className="font-serif font-bold text-xl text-[#53653D] mt-0.5 block">
+                ${myMonthlyEarnings.neto.toFixed(2)} USD
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Tarjetas rápidas */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <button
@@ -747,25 +901,44 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
                 </span>
               </div>
               <div className="divide-y divide-[#DED4C5]/60 text-xs">
-                {myQuotes.slice(0, 6).map((q) => (
-                  <div key={q.id} className="py-2.5 flex items-center justify-between gap-2">
-                    <div>
-                      <span className="font-mono font-bold text-[#082D60]">{q.numero_cotizacion}</span>
-                      <span className="text-[#756A5D] ml-2">
-                        • {q.cliente_nombre} ({q.cliente_ubicacion || 'Panamá'})
-                      </span>
-                      <p className="text-[11px] text-[#756A5D] truncate max-w-md">
-                        {q.servicio_nombre || 'Servicio técnico'}
-                      </p>
+                {myQuotes.slice(0, 6).map((q) => {
+                  const qTotal = Number(q.total || 0);
+                  const qBase = getCommissionBase(q);
+                  const qCom = calcCommission(qBase, commissionRate);
+                  const qNet = calcNet(qBase, commissionRate);
+                  const isLaborOnly = isLaborCommissionBase(q);
+                  return (
+                    <div key={q.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono font-bold text-[#082D60]">{q.numero_cotizacion}</span>
+                          <span className="text-[#756A5D]">
+                            • {q.cliente_nombre} ({q.cliente_ubicacion || 'Panamá'})
+                          </span>
+                          {isLaborOnly && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#0B72D9]/15 text-[#082D60] border border-[#0B72D9]/30">
+                              s/MO (${qBase.toFixed(2)})
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#756A5D] truncate max-w-md">
+                          {q.servicio_nombre || 'Servicio técnico'} · Anticipo 50%: ${(qTotal * 0.5).toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="text-left sm:text-right shrink-0 bg-[#F6F4EF] border border-[#DED4C5]/70 rounded-xl px-3 py-1.5 space-y-0.5">
+                        <span className="text-[11px] text-[#1F2421] block">
+                          Total cliente: <strong>${qTotal.toFixed(2)} USD</strong>
+                        </span>
+                        <span className="text-[11px] text-[#B98A43] block">
+                          Comisión ({commissionPctLabel}%): <strong>-${qCom.toFixed(2)} USD</strong>
+                        </span>
+                        <span className="text-xs font-bold text-[#53653D] block">
+                          Tu neto: ${qNet.toFixed(2)} USD
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <span className="font-bold text-[#1F2421] block">${Number(q.total || 0).toFixed(2)} USD</span>
-                      <span className="text-[10px] font-semibold text-[#B98A43]">
-                        Anticipo 50%: ${(Number(q.total || 0) * 0.5).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -848,12 +1021,9 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
                   ord.servicio_probable?.service_name ||
                   ord.servicio_probable?.nombre ||
                   'Servicio de Mantenimiento';
-                const price =
-                  ord.cotizacion ??
-                  ord.total_facturado ??
-                  ord.precio_regular ??
-                  ord.servicio_probable?.price ??
-                  35;
+                const price = getCommissionBase(ord) || 35;
+                const ordCommission = calcCommission(price, commissionRate);
+                const ordNet = calcNet(price, commissionRate);
 
                 return (
                   <div
@@ -888,6 +1058,24 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
                         <span className="font-serif font-bold text-base text-[#082D60]">
                           ${Number(price).toFixed(2)} USD
                         </span>
+                      </div>
+
+                      {/* Desglose transparente: Total cliente / Comisión (X%) / Tu neto */}
+                      <div className="grid grid-cols-3 gap-1.5 p-2 rounded-xl bg-[#F6F4EF] border border-[#DED4C5]/70 text-[11px]">
+                        <div>
+                          <span className="text-[10px] text-[#756A5D] block">Total cliente</span>
+                          <span className="font-bold text-[#1F2421]">${Number(price).toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-[#B98A43] block">
+                            Comisión ({commissionPctLabel}%)
+                          </span>
+                          <span className="font-bold text-[#B98A43]">-${ordCommission.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-[#53653D] block">Tu neto</span>
+                          <span className="font-bold text-[#53653D]">${ordNet.toFixed(2)}</span>
+                        </div>
                       </div>
 
                       <div>

@@ -389,6 +389,19 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
       const fixerName = currentUser.displayName || currentUser.nombre || currentUser.email || 'Fixer FIXIT';
       const techId = currentUser.technicianId || currentUser.uid;
 
+      const rawMaterialsSum = quoteItems
+        .filter((it) => /material|insumo|repuesto/i.test(it.descripcion))
+        .reduce((acc, it) => acc + (Number(it.total) || 0), 0);
+      const rawLaborSum = Math.max(0, totals.grossSubtotal - rawMaterialsSum);
+      const disaggregatedLabor =
+        rawMaterialsSum > 0 && rawLaborSum > 0
+          ? Math.round(rawLaborSum * 100) / 100
+          : Math.round(totals.grossSubtotal * 100) / 100;
+      const disaggregatedMaterials =
+        rawMaterialsSum > 0 && rawLaborSum > 0
+          ? Math.round(rawMaterialsSum * 100) / 100
+          : 0;
+
       const payload: Omit<ManagedQuote, 'id'> & { id?: string } = sanitizeForFirestore({
         id: quoteDocId,
         numero_cotizacion: currentFolio,
@@ -399,8 +412,8 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
         cliente_telefono: clientPhone.trim() || '—',
         cliente_ubicacion: clientLocation.trim() || 'Ciudad de Panamá',
         servicio_nombre: quoteItems.map((i) => i.descripcion).join(' + ').slice(0, 180) || 'Servicio Técnico FIXIT',
-        mano_de_obra: Math.round(totals.grossSubtotal * 100) / 100,
-        materiales: 0,
+        mano_de_obra: disaggregatedLabor,
+        materiales: disaggregatedMaterials,
         cargos_adicionales: 0,
         subtotal: Math.round(totals.netSubtotal * 100) / 100,
         subtotal_bruto: Math.round(totals.grossSubtotal * 100) / 100,

@@ -19,6 +19,12 @@ import {
   auth 
 } from './firebase';
 import { getNextMonthlyOrderNumber } from './orderConsecutive';
+import {
+  DEFAULT_COMMISSION_RATE,
+  getCommissionBase,
+  calcCommission,
+  calcNet,
+} from './commissions';
 import { 
   ServiceRequest, 
   Technician, 
@@ -596,7 +602,12 @@ export async function createOrderInFirestore(
     costo_inspeccion: payload.costo_inspeccion ?? 35,
     cotizacion: payload.cotizacion ?? payload.precio_lanzamiento ?? 35,
     total_facturado: payload.total_facturado ?? payload.precio_lanzamiento ?? 35,
-    costo_tecnico: payload.costo_tecnico ?? 0,
+    comision_fixit:
+      payload.comision_fixit ??
+      calcCommission(payload.total_facturado ?? payload.precio_lanzamiento ?? 35, DEFAULT_COMMISSION_RATE),
+    costo_tecnico:
+      payload.costo_tecnico ??
+      calcNet(payload.total_facturado ?? payload.precio_lanzamiento ?? 35, DEFAULT_COMMISSION_RATE),
     estado_pago: payload.estado_pago || 'Pendiente',
     metodo_pago: payload.metodo_pago,
     notas_internas: payload.notas_internas || '',
@@ -1067,11 +1078,14 @@ export async function createQuoteInFirestore(
   const quoteId = quoteData.id || `COT-${Date.now().toString().slice(-6)}`;
   const now = new Date().toISOString();
 
+  const quoteBase = getCommissionBase(quoteData);
   const newQuote: ManagedQuote = {
     ...quoteData,
     id: quoteId,
     fecha_creacion: quoteData.fecha_creacion || now,
     precio: quoteData.precio || quoteData.total,
+    comision_fixit: quoteData.comision_fixit ?? calcCommission(quoteBase, DEFAULT_COMMISSION_RATE),
+    costo_tecnico: quoteData.costo_tecnico ?? calcNet(quoteBase, DEFAULT_COMMISSION_RATE),
     estado: quoteData.estado || 'En preparación',
   };
 

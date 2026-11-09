@@ -19,6 +19,15 @@ import {
   setSoundEnabled,
   playNewOrderSound,
 } from '../lib/soundAlert';
+import {
+  DEFAULT_COMMISSION_RATE,
+  getCommissionBase,
+  calcCommission,
+  calcNet,
+  isLaborCommissionBase,
+  normalizeRate,
+  round2,
+} from '../lib/commissions';
 import { getNextMonthlyOrderNumber } from '../lib/orderConsecutive';
 import { FIXIT_CATALOG } from '../data/catalog';
 import {
@@ -80,7 +89,8 @@ import {
   User,
   FileText,
   Volume2,
-  VolumeX
+  VolumeX,
+  Percent
 } from 'lucide-react';
 
 export interface AdminFixer {
@@ -133,6 +143,9 @@ export interface AdminOrder {
   };
   total_facturado?: number;
   precio_regular?: number;
+  cotizacion?: number;
+  comision_fixit?: number;
+  costo_tecnico?: number;
   estado?: string;
   tecnico_id?: string;
   tecnico_asignado?: string;
@@ -235,6 +248,23 @@ function getPaymentMonthPrefix(fecha?: string | null): string {
 function getCurrentMonthPrefix(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getOrderMonthPrefix(ord?: { fecha?: string | null; createdAt?: any } | null): string {
+  if (!ord) return '';
+  const fromFecha = getPaymentMonthPrefix(ord.fecha);
+  if (fromFecha) return fromFecha;
+  if (ord.createdAt) {
+    if (typeof ord.createdAt === 'string') {
+      return getPaymentMonthPrefix(ord.createdAt);
+    }
+    if (typeof ord.createdAt.toDate === 'function') {
+      try {
+        return ord.createdAt.toDate().toISOString().slice(0, 7);
+      } catch {}
+    }
+  }
+  return '';
 }
 
 export function getFixerShareText(f: AdminFixer): string {
@@ -379,6 +409,19 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     updatedAt?: string;
   } | null>(null);
   const [isSavingInviteCode, setIsSavingInviteCode] = useState(false);
+
+  // === COMISIÓN FIXIT (settings/fixer_commission, default 0.15 = 15%) ===
+  const [commissionRate, setCommissionRate] = useState<number>(DEFAULT_COMMISSION_RATE);
+  const [commissionInputPct, setCommissionInputPct] = useState<string>(
+    String(round2(DEFAULT_COMMISSION_RATE * 100))
+  );
+  const [isEditingCommission, setIsEditingCommission] = useState<boolean>(false);
+  const [isSavingCommission, setIsSavingCommission] = useState<boolean>(false);
+  const [commissionDocExists, setCommissionDocExists] = useState<boolean>(true);
+  const [commissionMeta, setCommissionMeta] = useState<{
+    updatedBy?: string;
+    updatedAt?: string;
+  } | null>(null);
 
   // === ALERTA SONORA DE NUEVOS PEDIDOS (ADMIN) ===
   const [adminSoundEnabled, setAdminSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
@@ -673,6 +716,56 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     };
   }, [isAdmin]);
 
+  // Cargar tasa de comisión desde settings/fixer_commission (lectura firmada, default 0.15)
+  useEffect(() => {
+    if (!hasAdminOrOperatorAccess) return;
+    let unsubCommission: (() => void) | null = null;
+    const commissionDocRef = doc(db, 'settings', 'fixer_commission');
+
+    const applySnap = (exists: boolean, data?: Record<string, any>) => {
+      if (exists && data && typeof data.rate === 'number' && Number.isFinite(data.rate)) {
+        const rate = normalizeRate(data.rate);
+        setCommissionRate(rate);
+        setCommissionInputPct(String(round2(rate * 100)));
+        setCommissionDocExists(true);
+        setCommissionMeta({
+          updatedBy: data.updatedBy,
+          updatedAt: data.updatedAt,
+        });
+      } else {
+        setCommissionRate(DEFAULT_COMMISSION_RATE);
+        setCommissionInputPct(String(round2(DEFAULT_COMMISSION_RATE * 100)));
+        setCommissionDocExists(false);
+        setCommissionMeta(null);
+      }
+    };
+
+    try {
+      unsubCommission = onSnapshot(
+        commissionDocRef,
+        (snap) => {
+          applySnap(snap.exists(), snap.data());
+        },
+        async () => {
+          try {
+            const snap = await getDoc(commissionDocRef);
+            applySnap(snap.exists(), snap.data());
+          } catch {
+            applySnap(false);
+          }
+        }
+      );
+    } catch {
+      getDoc(commissionDocRef)
+        .then((snap) => applySnap(snap.exists(), snap.data()))
+        .catch(() => applySnap(false));
+    }
+
+    return () => {
+      if (unsubCommission) unsubCommission();
+    };
+  }, [hasAdminOrOperatorAccess]);
+
   // Cargar Citas Agendadas
   useEffect(() => {
     if (activeTab !== 'agenda') return;
@@ -916,6 +1009,113 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         getPaymentMonthPrefix(p.fecha) === currentMonthPrefix
     ).length;
   }, [payments, currentMonthPrefix]);
+
+  // === MÉTRICAS DE COMISIÓN FIXIT (DEVENGADAS VS COBRADAS Y POR FIXER) ===
+  const accruedCurrentMonthOrders = useMemo(() => {
+    return orders.filter((ord) => {
+      const estado = String(ord.estado || '').toLowerCase();
+      if (estado.includes('cancel')) return false;
+      const month = getOrderMonthPrefix(ord) || currentMonthPrefix;
+      return month === currentMonthPrefix;
+    });
+  }, [orders, currentMonthPrefix]);
+
+  const accruedCurrentMonthCommissions = useMemo(() => {
+    const sum = accruedCurrentMonthOrders.reduce((acc, ord) => {
+      const base = getCommissionBase(ord);
+      return acc + calcCommission(base, commissionRate);
+    }, 0);
+    return round2(sum);
+  }, [accruedCurrentMonthOrders, commissionRate]);
+
+  const collectedCurrentMonthCommissions = useMemo(() => {
+    return calcCommission(confirmedCurrentMonthRevenue, commissionRate);
+  }, [confirmedCurrentMonthRevenue, commissionRate]);
+
+  const fixerCommissionBreakdown = useMemo(() => {
+    type Triple = { facturado: number; comisiones: number; neto: number; count: number };
+    type FixerRow = {
+      key: string;
+      fixerId?: string;
+      nombre: string;
+      especialidad?: string;
+      mes: Triple;
+      historico: Triple;
+    };
+
+    const map = new Map<string, FixerRow>();
+
+    // Inicializar con los fixers registrados para que todos aparezcan en el directorio
+    fixers.forEach((f) => {
+      const key = f.id || f.nombre;
+      map.set(key, {
+        key,
+        fixerId: f.id,
+        nombre: f.nombre || 'Fixer FIXIT',
+        especialidad: f.especialidad,
+        mes: { facturado: 0, comisiones: 0, neto: 0, count: 0 },
+        historico: { facturado: 0, comisiones: 0, neto: 0, count: 0 },
+      });
+    });
+
+    const resolveKeyForOrder = (ord: AdminOrder): { key: string; nombre: string } | null => {
+      if (ord.tecnico_id && map.has(ord.tecnico_id)) {
+        return { key: ord.tecnico_id, nombre: map.get(ord.tecnico_id)!.nombre };
+      }
+      const rawName = (ord.tecnico_nombre || ord.tecnico_asignado || '').trim();
+      if (rawName) {
+        const matched = fixers.find(
+          (f) => f.id === rawName || f.nombre.trim().toLowerCase() === rawName.toLowerCase()
+        );
+        if (matched) {
+          const k = matched.id || matched.nombre;
+          return { key: k, nombre: matched.nombre };
+        }
+        return { key: rawName, nombre: rawName };
+      }
+      if (ord.tecnico_id) {
+        return { key: ord.tecnico_id, nombre: ord.tecnico_id };
+      }
+      return null;
+    };
+
+    orders.forEach((ord) => {
+      const estado = String(ord.estado || '').toLowerCase();
+      if (estado.includes('cancel')) return;
+      const target = resolveKeyForOrder(ord);
+      if (!target) return;
+
+      const existing = map.get(target.key) || {
+        key: target.key,
+        nombre: target.nombre,
+        mes: { facturado: 0, comisiones: 0, neto: 0, count: 0 },
+        historico: { facturado: 0, comisiones: 0, neto: 0, count: 0 },
+      };
+
+      const base = getCommissionBase(ord);
+      const com = calcCommission(base, commissionRate);
+      const net = calcNet(base, commissionRate);
+
+      existing.historico.facturado = round2(existing.historico.facturado + base);
+      existing.historico.comisiones = round2(existing.historico.comisiones + com);
+      existing.historico.neto = round2(existing.historico.neto + net);
+      existing.historico.count += 1;
+
+      const ordMonth = getOrderMonthPrefix(ord) || currentMonthPrefix;
+      if (ordMonth === currentMonthPrefix) {
+        existing.mes.facturado = round2(existing.mes.facturado + base);
+        existing.mes.comisiones = round2(existing.mes.comisiones + com);
+        existing.mes.neto = round2(existing.mes.neto + net);
+        existing.mes.count += 1;
+      }
+
+      map.set(target.key, existing);
+    });
+
+    return Array.from(map.values()).sort(
+      (a, b) => b.historico.facturado - a.historico.facturado || a.nombre.localeCompare(b.nombre)
+    );
+  }, [fixers, orders, commissionRate, currentMonthPrefix]);
 
   const monthlyPaymentsSummary = useMemo(() => {
     let confirmedSum = 0;
@@ -1392,6 +1592,41 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
+  const handleSaveCommissionRate = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!isAdmin) return;
+    const parsedPct = parseFloat(commissionInputPct.replace(',', '.'));
+    if (!Number.isFinite(parsedPct) || parsedPct < 0 || parsedPct > 100) {
+      showToast('Ingresa un porcentaje válido entre 0% y 100%.', 'error');
+      return;
+    }
+
+    setIsSavingCommission(true);
+    try {
+      const nextRate = normalizeRate(round2(parsedPct) / 100);
+      const nowIso = new Date().toISOString();
+      const author = user?.displayName || user?.nombre || user?.email || 'Admin FIXIT';
+
+      await setDoc(doc(db, 'settings', 'fixer_commission'), {
+        rate: nextRate,
+        updatedBy: author,
+        updatedAt: nowIso,
+      });
+
+      setCommissionRate(nextRate);
+      setCommissionInputPct(String(round2(nextRate * 100)));
+      setCommissionDocExists(true);
+      setCommissionMeta({ updatedBy: author, updatedAt: nowIso });
+      setIsEditingCommission(false);
+      showToast(`Comisión Fixit actualizada a ${round2(nextRate * 100)}%.`, 'success');
+    } catch (err: any) {
+      console.error('[Admin] Error guardando tasa de comisión:', err);
+      showToast(`Error al guardar tasa de comisión: ${err?.message || 'Error'}`, 'error');
+    } finally {
+      setIsSavingCommission(false);
+    }
+  };
+
   const resolveAssignedFixerForOrder = (ord: AdminOrder): AdminFixer | null => {
     const hasAssigned = Boolean(ord.tecnico_id || ord.tecnico_nombre || ord.tecnico_asignado);
     if (!hasAssigned) return null;
@@ -1590,6 +1825,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         precio_regular: priceNum,
         total_facturado: priceNum,
         cotizacion: priceNum,
+        comision_fixit: calcCommission(priceNum, commissionRate),
+        costo_tecnico: calcNet(priceNum, commissionRate),
         estado: manualInitialStatus,
         origen: 'ADMIN_MANUAL',
         tipo_propiedad: 'Residencial',
@@ -1961,7 +2198,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       </header>
 
       {/* TARJETAS DE MÉTRICAS */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div
           onClick={() => setActiveTab('payments')}
           className="bg-[#FFFEFA] border-2 border-[#53653D]/40 hover:border-[#53653D] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2 cursor-pointer transition-all"
@@ -1987,6 +2224,62 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           </div>
           <p className="text-[11px] text-[#53653D] font-semibold">
             {confirmedCurrentMonthCount} {confirmedCurrentMonthCount === 1 ? 'pago real' : 'pagos reales'} ({currentMonthPrefix})
+          </p>
+        </div>
+
+        <div
+          onClick={() => setActiveTab('orders')}
+          className="bg-[#FFFEFA] border-2 border-[#082D60]/30 hover:border-[#082D60] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2 cursor-pointer transition-all"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[#082D60]">
+              Comisiones devengadas (mes)
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-[#082D60]/10 text-[#082D60] flex items-center justify-center shrink-0">
+              <Percent className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="font-serif font-bold text-2xl sm:text-3xl text-[#082D60]">
+              {loadingOrders
+                ? '...'
+                : `$${accruedCurrentMonthCommissions.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}`}
+            </span>
+            <span className="text-xs font-semibold text-[#756A5D]">USD</span>
+          </div>
+          <p className="text-[11px] text-[#082D60] font-semibold">
+            {round2(commissionRate * 100)}% sobre {accruedCurrentMonthOrders.length} pedidos no cancelados ({currentMonthPrefix})
+          </p>
+        </div>
+
+        <div
+          onClick={() => setActiveTab('payments')}
+          className="bg-[#FFFEFA] border-2 border-[#B98A43]/40 hover:border-[#B98A43] rounded-3xl p-4 sm:p-5 shadow-2xs space-y-2 cursor-pointer transition-all"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[#B98A43]">
+              Comisiones cobradas (mes)
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-[#B98A43]/15 text-[#B98A43] flex items-center justify-center shrink-0">
+              <DollarSign className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-1">
+            <span className="font-serif font-bold text-2xl sm:text-3xl text-[#B98A43]">
+              {loadingPayments
+                ? '...'
+                : `$${collectedCurrentMonthCommissions.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}`}
+            </span>
+            <span className="text-xs font-semibold text-[#756A5D]">USD</span>
+          </div>
+          <p className="text-[11px] text-[#B98A43] font-semibold">
+            {round2(commissionRate * 100)}% sobre pagos confirmados ({currentMonthPrefix})
           </p>
         </div>
 
@@ -2455,6 +2748,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                   <th className="py-3 px-4">Cliente</th>
                   <th className="py-3 px-4">Servicio</th>
                   <th className="py-3 px-4">Monto</th>
+                  <th className="py-3 px-3">Comisión</th>
+                  <th className="py-3 px-3">Neto fixer</th>
                   <th className="py-3 px-4">Fixer Asignado</th>
                   <th className="py-3 px-4">Estado</th>
                   <th className="py-3 px-4 text-right">Acciones</th>
@@ -2468,6 +2763,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-32" /></td>
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-28" /></td>
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-16" /></td>
+                      <td className="py-4 px-3"><div className="h-4 bg-[#DED4C5]/40 rounded w-14" /></td>
+                      <td className="py-4 px-3"><div className="h-4 bg-[#DED4C5]/40 rounded w-14" /></td>
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-24" /></td>
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-20" /></td>
                       <td className="py-4 px-4"><div className="h-4 bg-[#DED4C5]/40 rounded w-16 ml-auto" /></td>
@@ -2475,7 +2772,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                   ))
                 ) : filteredOrders.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-[#756A5D]">
+                    <td colSpan={9} className="py-12 text-center text-[#756A5D]">
                       <Package className="w-8 h-8 text-[#DED4C5] mx-auto mb-2" />
                       <p className="font-semibold text-[#1F2421]">No se encontraron pedidos</p>
                     </td>
@@ -2485,6 +2782,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     const consecutivo = ord.numero_pedido || ord.consecutiveId || ord.orderNumber || ord.codigo_seguimiento || 'FIX-PENDIENTE';
                     const officialStatus = normalizeStatus(ord.estado);
                     const isOfficialListed = ORDER_STATUS_OPTIONS.some((o) => o.value === officialStatus);
+                    const orderBase = getCommissionBase(ord);
+                    const orderCommission = calcCommission(orderBase, commissionRate);
+                    const orderNet = calcNet(orderBase, commissionRate);
                     return (
                       <tr key={ord.id} className="hover:bg-[#F6F4EF]/50 transition-colors">
                         <td className="py-3 px-4 font-mono font-bold text-[#082D60] whitespace-nowrap">
@@ -2499,7 +2799,13 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                           <span className="text-[11px] text-[#756A5D] truncate block max-w-xs">{ord.direccion || 'Panamá'}</span>
                         </td>
                         <td className="py-3 px-4 font-serif font-bold text-[#1F2421] whitespace-nowrap">
-                          ${(ord.total_facturado ?? ord.precio_regular ?? 35).toFixed(2)} USD
+                          ${orderBase.toFixed(2)} USD
+                        </td>
+                        <td className="py-3 px-3 font-mono font-bold text-[#082D60] whitespace-nowrap">
+                          ${orderCommission.toFixed(2)}
+                        </td>
+                        <td className="py-3 px-3 font-mono font-bold text-[#53653D] whitespace-nowrap">
+                          ${orderNet.toFixed(2)}
                         </td>
                         <td className="py-3 px-4 text-[#756A5D]">
                           {ord.tecnico_nombre || ord.tecnico_asignado ? (
@@ -2686,6 +2992,150 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Control de Tasa de Comisión Fixit (solo ADMIN) */}
+          {isAdmin && (
+            <div className="p-4 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#082D60]">
+                  <Percent className="w-4 h-4 text-[#0B72D9]" />
+                  <span>Tasa de Comisión Fixit (sobre mano de obra)</span>
+                  {!commissionDocExists && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      Default 15% activo
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-[#756A5D]">
+                  Fixit cobra el 100% al cliente y liquida el neto al fixer (materiales desglosados excluidos). Guardado en <code>settings/fixer_commission</code>.
+                  {commissionMeta?.updatedBy ? ` · Actualizado por ${commissionMeta.updatedBy}` : ''}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {isEditingCommission ? (
+                  <form onSubmit={handleSaveCommissionRate} className="flex items-center gap-2">
+                    <div className="relative flex items-center">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.5"
+                        value={commissionInputPct}
+                        onChange={(e) => setCommissionInputPct(e.target.value)}
+                        className="w-24 pr-6 pl-3 py-1.5 rounded-xl bg-[#FFFEFA] border border-[#0B72D9] font-mono font-bold text-sm text-[#082D60] focus:outline-hidden"
+                      />
+                      <span className="absolute right-2.5 text-xs font-bold text-[#756A5D]">%</span>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isSavingCommission}
+                      className="py-1.5 px-3 rounded-xl bg-[#53653D] hover:bg-[#435331] text-white font-bold text-xs cursor-pointer transition-colors disabled:opacity-50"
+                    >
+                      {isSavingCommission ? 'Guardando...' : 'Guardar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingCommission(false);
+                        setCommissionInputPct(String(round2(commissionRate * 100)));
+                      }}
+                      className="py-1.5 px-2.5 rounded-xl border border-[#DED4C5] bg-[#FFFEFA] text-[#756A5D] hover:text-[#1F2421] font-bold text-xs cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    <span className="font-mono font-bold text-sm px-3 py-1.5 rounded-xl bg-[#FFFEFA] border border-[#DED4C5] text-[#082D60]">
+                      {round2(commissionRate * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCommissionInputPct(String(round2(commissionRate * 100)));
+                        setIsEditingCommission(true);
+                      }}
+                      className="py-1.5 px-3 rounded-xl border border-[#DED4C5] bg-[#FFFEFA] hover:bg-[#DED4C5]/30 text-[#082D60] font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Editar tasa (0-100%)</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Desglose por Fixer: Triple Facturado / Comisiones / Neto (Mes + Histórico, patrón quotesByFixer) */}
+          {fixerCommissionBreakdown.length > 0 && (
+            <div className="bg-[#F6F4EF]/70 border border-[#DED4C5] rounded-2xl p-4 space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#082D60]">
+                  Liquidación y Comisiones por Fixer — Triple Facturado / Comisiones ({round2(commissionRate * 100)}%) / Neto
+                </h3>
+                <span className="text-[11px] text-[#756A5D]">
+                  Mes actual ({currentMonthPrefix}) + Histórico acumulado
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {fixerCommissionBreakdown.map((row) => (
+                  <div
+                    key={row.key}
+                    className="p-3.5 rounded-xl bg-[#FFFEFA] border border-[#DED4C5]/80 space-y-2 shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between gap-2 border-b border-[#DED4C5]/50 pb-1.5">
+                      <div className="min-w-0">
+                        <span className="font-bold text-xs text-[#1F2421] truncate block">
+                          {row.nombre}
+                        </span>
+                        {row.especialidad && (
+                          <span className="text-[10px] text-[#756A5D] block truncate">
+                            {row.especialidad}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#082D60]/10 text-[#082D60] shrink-0">
+                        {row.historico.count} {row.historico.count === 1 ? 'pedido' : 'pedidos'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div className="p-2 rounded-lg bg-[#F6F4EF] border border-[#DED4C5]/60 space-y-0.5">
+                        <span className="text-[10px] font-bold uppercase text-[#082D60] block">
+                          Mes ({currentMonthPrefix})
+                        </span>
+                        <span className="text-[#1F2421] block">
+                          Facturado: <strong>${row.mes.facturado.toFixed(2)}</strong>
+                        </span>
+                        <span className="text-[#B98A43] block">
+                          Comisiones: <strong>${row.mes.comisiones.toFixed(2)}</strong>
+                        </span>
+                        <span className="text-[#53653D] font-bold block">
+                          Neto: ${row.mes.neto.toFixed(2)}
+                        </span>
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-[#F6F4EF] border border-[#DED4C5]/60 space-y-0.5">
+                        <span className="text-[10px] font-bold uppercase text-[#756A5D] block">
+                          Histórico
+                        </span>
+                        <span className="text-[#1F2421] block">
+                          Facturado: <strong>${row.historico.facturado.toFixed(2)}</strong>
+                        </span>
+                        <span className="text-[#B98A43] block">
+                          Comisiones: <strong>${row.historico.comisiones.toFixed(2)}</strong>
+                        </span>
+                        <span className="text-[#53653D] font-bold block">
+                          Neto: ${row.historico.neto.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Gestor de Código de Invitación (solo ADMIN) */}
           {isAdmin && (
@@ -2999,6 +3449,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     <th className="py-3.5 px-4">Fixer / Emisor</th>
                     <th className="py-3.5 px-4">Conceptos</th>
                     <th className="py-3.5 px-4">Total / Anticipo 50%</th>
+                    <th className="py-3.5 px-3">Comisión</th>
+                    <th className="py-3.5 px-3">Neto fixer</th>
                     <th className="py-3.5 px-4">Estado</th>
                     <th className="py-3.5 px-4 text-right">Acciones</th>
                   </tr>
@@ -3006,13 +3458,17 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 <tbody className="divide-y divide-[#DED4C5]/60 text-xs">
                   {filteredQuotes.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-[#756A5D]">
+                      <td colSpan={10} className="py-8 text-center text-[#756A5D]">
                         No hay cotizaciones registradas con este filtro.
                       </td>
                     </tr>
                   ) : (
                     filteredQuotes.map((quote) => {
                       const anticipo = quote.anticipo ?? Number(quote.total || 0) * 0.5;
+                      const quoteBase = getCommissionBase(quote);
+                      const quoteCommission = calcCommission(quoteBase, commissionRate);
+                      const quoteNet = calcNet(quoteBase, commissionRate);
+                      const isLaborBase = isLaborCommissionBase(quote);
                       const cleanPhone = (quote.cliente_telefono || '').replace(/\D/g, '');
                       const waPhone = cleanPhone
                         ? cleanPhone.startsWith('507')
@@ -3067,6 +3523,26 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                             </span>
                             <span className="text-[10px] font-bold text-[#0B72D9]">
                               50%: ${Number(anticipo).toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono font-bold text-xs text-[#082D60]">
+                                ${quoteCommission.toFixed(2)}
+                              </span>
+                              {isLaborBase && (
+                                <span
+                                  title={`Calculada sobre mano de obra ($${quoteBase.toFixed(2)})`}
+                                  className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#0B72D9]/15 text-[#082D60] border border-[#0B72D9]/30"
+                                >
+                                  s/MO
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            <span className="font-mono font-bold text-xs text-[#53653D]">
+                              ${quoteNet.toFixed(2)}
                             </span>
                           </td>
                           <td className="py-3.5 px-4">
@@ -3285,6 +3761,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     <th className="py-3.5 px-4">Cliente</th>
                     <th className="py-3.5 px-4">Método</th>
                     <th className="py-3.5 px-4">Monto</th>
+                    <th className="py-3.5 px-3">Neto Fixit est.</th>
                     <th className="py-3.5 px-4">Estado</th>
                     <th className="py-3.5 px-4">Referencia</th>
                     <th className="py-3.5 px-4 text-right">Acciones</th>
@@ -3293,7 +3770,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 <tbody className="divide-y divide-[#DED4C5]/60 text-xs">
                   {filteredPayments.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-10 text-center text-[#756A5D]">
+                      <td colSpan={10} className="py-10 text-center text-[#756A5D]">
                         No hay pagos registrados para el período o filtro seleccionado.
                       </td>
                     </tr>
@@ -3358,6 +3835,20 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                             <span className="font-serif font-bold text-sm text-[#1F2421]">
                               ${Number(pay.monto || 0).toFixed(2)}
                             </span>
+                          </td>
+                          <td className="py-3.5 px-3 whitespace-nowrap">
+                            {isConfirmed ? (
+                              <div>
+                                <span className="font-mono font-bold text-xs text-[#53653D] block">
+                                  ${calcNet(Number(pay.monto) || 0, commissionRate).toFixed(2)}
+                                </span>
+                                <span className="text-[10px] text-[#756A5D]">
+                                  Com ({round2(commissionRate * 100)}%): ${calcCommission(Number(pay.monto) || 0, commissionRate).toFixed(2)}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-[#756A5D]">—</span>
+                            )}
                           </td>
                           <td className="py-3.5 px-4 whitespace-nowrap">
                             <span

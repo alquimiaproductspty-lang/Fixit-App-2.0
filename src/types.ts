@@ -213,6 +213,8 @@ export interface ManagedQuote {
   descuento_valor?: number;
   total: number;
   anticipo?: number;
+  comision_fixit?: number;
+  costo_tecnico?: number;
   items?: QuoteItem[];
   cliente_uid?: string;
   tecnico_id?: string;
