@@ -81,7 +81,6 @@ import {
   RefreshCw, 
   TrendingUp, 
   X, 
-  Hash,
   LayoutGrid,
   List,
   Sparkles,
@@ -294,6 +293,11 @@ export function getFixerShareText(f: AdminFixer): string {
     lines.push(`📱 ${cleanTel}`);
   }
 
+  const cleanCedula = (f.cedula || '').trim();
+  if (cleanCedula && cleanCedula.toUpperCase() !== 'N/A') {
+    lines.push(`🪪 Cédula: ${cleanCedula}`);
+  }
+
   const cleanIdonTipo = (f.idoneidad_tipo || '').trim();
   const cleanIdonNum = (f.idoneidad_numero || '').trim();
   if (
@@ -477,8 +481,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [assignFilterAvailability, setAssignFilterAvailability] = useState('all');
   const [isAssigning, setIsAssigning] = useState(false);
 
-  const [nextConsecutivePreview, setNextConsecutivePreview] = useState<string>('');
-  const [isGeneratingConsecutive, setIsGeneratingConsecutive] = useState(false);
 
   const [toast, setToast] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
 
@@ -2101,18 +2103,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
-  const handleTestGenerateConsecutive = async () => {
-    setIsGeneratingConsecutive(true);
-    try {
-      const generated = await getNextMonthlyOrderNumber();
-      setNextConsecutivePreview(generated);
-    } catch (e) {
-      console.error('Error al generar consecutivo:', e);
-    } finally {
-      setIsGeneratingConsecutive(false);
-    }
-  };
-
   const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
     try {
       const authorName = user?.displayName || user?.nombre || user?.email || 'Operador FIXIT';
@@ -2630,44 +2620,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       {/* ============================================================== */}
       {activeTab === 'kpis' && (
         <div className="space-y-6">
-          <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Hash className="w-5 h-5 text-[#0B72D9]" />
-                  <h3 className="font-serif font-bold text-lg text-[#1F2421]">
-                    Sistema de Numeración Correlativa Mensual (FIX-YYMM-####)
-                  </h3>
-                </div>
-                <p className="text-xs text-[#756A5D] mt-1">
-                  Mecanismo transaccional atómico en <code>counters/orders_YYYY_MM</code> mediante <code>runTransaction</code>.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleTestGenerateConsecutive}
-                disabled={isGeneratingConsecutive}
-                className="py-2.5 px-4 rounded-xl bg-[#0B72D9]/10 hover:bg-[#0B72D9]/20 border border-[#0B72D9]/30 text-[#0B72D9] font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingConsecutive ? 'animate-spin' : ''}`} />
-                <span>Simular Consecutivo Atómico</span>
-              </button>
-            </div>
-
-            {nextConsecutivePreview && (
-              <div className="p-4 rounded-2xl bg-[#53653D]/10 border border-[#53653D]/30 flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-bold text-[#53653D] uppercase tracking-wider block">
-                    Consecutivo Generado:
-                  </span>
-                  <span className="font-mono font-bold text-xl sm:text-2xl text-[#1F2421]">
-                    {nextConsecutivePreview}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-[#FFFEFA] border border-[#DED4C5] rounded-3xl p-5 shadow-2xs space-y-3">
               <h3 className="font-serif font-bold text-base text-[#1F2421] flex items-center justify-between">

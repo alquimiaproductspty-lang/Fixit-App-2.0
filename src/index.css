@@ -597,6 +597,30 @@ body {
   }
 }
 
+/* Barra de acciones fija inferior (sticky): siempre al alcance sin scroll.
+   Sigue marcada q-no-print, así que no sale en PDF ni impresión. */
+.fixit-quoter-sheet .q-actions-bar.quoter-actions-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  background: #FFFEFA;
+  border-radius: 0.75rem;
+  box-shadow: 0 -6px 16px rgba(8, 45, 96, 0.12);
+  padding: 0.6rem;
+}
+
+@media (max-width: 639px) {
+  .fixit-quoter-sheet .q-actions-bar.quoter-actions-dock {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  }
+  .fixit-quoter-sheet .q-actions-bar.quoter-actions-dock .q-btn {
+    white-space: nowrap;
+    flex: none;
+  }
+}
+
 .fixit-quoter-sheet .q-btn {
   display: inline-flex;
   align-items: center;

@@ -17,11 +17,12 @@ interface AuthLoginScreenProps {
 
 export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
   onSuccess,
+  onNavigateToRegister,
   onGoBack,
   hideGuest = false,
   showBack = true,
   title = 'Bienvenido a FIXIT',
-  subtitle = 'Inicia sesión con tu cuenta de administrador u operador para acceder al panel.',
+  subtitle = 'Accede a tu cuenta FIXIT para continuar.',
 }) => {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isGuestLoading, setIsGuestLoading] = useState(false);
@@ -158,6 +159,22 @@ export const AuthLoginScreen: React.FC<AuthLoginScreenProps> = ({
               onSuccess={onSuccess}
               onGoBack={onGoBack}
             />
+
+            {/* Create Account */}
+            {onNavigateToRegister && (
+              <p className="text-xs text-[#756A5D]">
+                ¿No tienes cuenta?{' '}
+                <button
+                  type="button"
+                  onClick={onNavigateToRegister}
+                  disabled={isBusy}
+                  className="font-bold text-[#0B72D9] hover:underline cursor-pointer disabled:opacity-50"
+                  id="link-go-to-register"
+                >
+                  Crear cuenta
+                </button>
+              </p>
+            )}
 
             {/* Divider */}
             <div className="flex items-center gap-3 py-1">

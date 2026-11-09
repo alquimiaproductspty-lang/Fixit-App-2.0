@@ -49,6 +49,10 @@ const IDONEIDAD_TIPOS = [
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
 
+// Foto de perfil desactivada por decisión del negocio (registro solo con datos).
+// Para reactivar: poner en true + activar Storage/Blaze + publicar storage.rules.
+const FIXER_PHOTO_ENABLED = false;
+
 export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
   authState,
   profileOnlyMode = false,
@@ -136,26 +140,30 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
       return;
     }
 
+    // Releer siempre el código vigente: el admin puede haber generado uno nuevo
+    // después de montar esta pantalla y el valor eager quedaría obsoleto.
     let expectedCode = remoteInviteCode;
-    if (!expectedCode) {
-      try {
-        const snap = await getDoc(doc(db, 'settings', 'fixer_invite'));
-        if (snap.exists()) {
-          expectedCode = String(snap.data()?.code || '').trim() || null;
-          setRemoteInviteCode(expectedCode);
-        }
-      } catch {
+    try {
+      const snap = await getDoc(doc(db, 'settings', 'fixer_invite'));
+      expectedCode = snap.exists() ? (String(snap.data()?.code || '').trim() || null) : null;
+      setRemoteInviteCode(expectedCode);
+    } catch {
+      // Sin red o sin permiso de lectura: usar el valor eager como fallback.
+      if (!expectedCode) {
         setErrorMsg('No se pudo verificar el código de invitación. Verifica tu conexión.');
         return;
       }
     }
 
-    if (!expectedCode || cleanCode !== expectedCode) {
+    // Comparación insensible a mayúsculas (el generador solo emite mayúsculas)
+    // y se guarda normalizado porque el servidor compara exacto en el paso 2.
+    const normalizedCode = cleanCode.toUpperCase();
+    if (!expectedCode || normalizedCode !== expectedCode.toUpperCase()) {
       setErrorMsg('Código inválido, pídelo a tu supervisor');
       return;
     }
 
-    setInviteCode(cleanCode);
+    setInviteCode(normalizedCode);
     setStep(2);
   };
 
@@ -202,11 +210,11 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
       setErrorMsg('Ingresa el número de tu idoneidad profesional.');
       return;
     }
-    if (!photoFile) {
+    if (FIXER_PHOTO_ENABLED && !photoFile) {
       setErrorMsg('Debes subir o tomar tu foto de perfil para completar el registro.');
       return;
     }
-    if (photoFile.size > MAX_PHOTO_BYTES) {
+    if (photoFile && photoFile.size > MAX_PHOTO_BYTES) {
       setErrorMsg('La foto supera el límite máximo de 5 MB.');
       return;
     }
@@ -216,18 +224,20 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
     const now = new Date().toISOString();
     const cleanEmail = (currentUser.email || '').trim().toLowerCase();
 
-    // 1. Subir primero la foto a Firebase Storage; si falla, abortar sin escribir docs
+    // 1. Subir primero la foto a Firebase Storage (si el flag está activo); si falla, abortar sin escribir docs
     let uploadedPhotoUrl = '';
-    try {
-      uploadedPhotoUrl = await uploadFixerPhoto(uid, photoFile);
-    } catch (uploadErr: any) {
-      console.error('[FixerOnboarding] Error al subir foto de perfil:', uploadErr);
-      setErrorMsg(
-        uploadErr?.message ||
-          'No se pudo subir la foto de perfil. Verifica tu conexión e inténtalo de nuevo.'
-      );
-      setIsSubmitting(false);
-      return;
+    if (FIXER_PHOTO_ENABLED && photoFile) {
+      try {
+        uploadedPhotoUrl = await uploadFixerPhoto(uid, photoFile);
+      } catch (uploadErr: any) {
+        console.error('[FixerOnboarding] Error al subir foto de perfil:', uploadErr);
+        setErrorMsg(
+          uploadErr?.message ||
+            'No se pudo subir la foto de perfil. Verifica tu conexión e inténtalo de nuevo.'
+        );
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     try {
@@ -433,6 +443,8 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
         {/* PASO 2: FORMULARIO DE PERFIL PROFESIONAL */}
         {step === 2 && (
           <form onSubmit={handleSubmitProfile} className="space-y-4 text-xs">
+            {FIXER_PHOTO_ENABLED && (
+              <>
             {/* Foto de perfil obligatoria */}
             <div className="p-3.5 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5] space-y-2.5">
               <div className="flex items-center justify-between">
@@ -479,6 +491,8 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
                 </div>
               </div>
             </div>
+              </>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block space-y-1">

@@ -1,7 +1,8 @@
-import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db, authService, AuthState } from './lib/firebase';
 import { AuthLoginScreen } from './components/auth/AuthLoginScreen';
+import { AuthRegisterScreen } from './components/auth/AuthRegisterScreen';
 import { FixerOnboarding } from './components/auth/FixerOnboarding';
 import { AdminDashboardView } from './components/AdminDashboardView';
 import { FixerDashboardView } from './components/FixerDashboardView';
@@ -85,6 +86,7 @@ class ConsoleErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>(() => authService.getAuthState());
   const [adminViewMode, setAdminViewMode] = useState<'admin' | 'fixer'>('admin');
+  const [authView, setAuthView] = useState<'login' | 'register'>('login');
   const [checkingFixerDoc, setCheckingFixerDoc] = useState(false);
   const [missingFixerDoc, setMissingFixerDoc] = useState(false);
   const pwaUpdate = usePWAUpdate();
@@ -98,6 +100,18 @@ export default function App() {
       unsub();
     };
   }, []);
+
+  // Resetear la vista de auth a login solo en logout real (transición
+  // con-usuario → sin-usuario). No en cada emisión sin sesión: eso desmontaba
+  // AuthRegisterScreen tras un registro fallido y tragaba el mensaje de error.
+  const prevAuthUserRef = useRef(authState.user);
+  useEffect(() => {
+    const hadUser = Boolean(prevAuthUserRef.current);
+    prevAuthUserRef.current = authState.user;
+    if (hadUser && !authState.user) {
+      setAuthView('login');
+    }
+  }, [authState.user]);
 
   // Eliminar sesiones anónimas heredadas del flujo público
   useEffect(() => {
@@ -175,12 +189,20 @@ export default function App() {
   if (!isAuthenticatedStaff) {
     return (
       <div className="min-h-screen bg-[#F6F4EF]">
-        <AuthLoginScreen
-          hideGuest={true}
-          showBack={false}
-          title="Consola Operativa FIXIT"
-          subtitle="Acceso exclusivo para Administradores, Operadores y Técnicos Fixer (admin.fixitpanama.com)."
-        />
+        {authView === 'register' ? (
+          <AuthRegisterScreen
+            onNavigateToLogin={() => setAuthView('login')}
+            onGoBack={() => setAuthView('login')}
+          />
+        ) : (
+          <AuthLoginScreen
+            hideGuest={true}
+            showBack={false}
+            title="Consola Operativa FIXIT"
+            subtitle="Acceso exclusivo para Administradores, Operadores y Técnicos Fixer (admin.fixitpanama.com)."
+            onNavigateToRegister={() => setAuthView('register')}
+          />
+        )}
         <PWAUpdatePrompt updateState={pwaUpdate} />
       </div>
     );

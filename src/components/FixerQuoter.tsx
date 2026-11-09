@@ -151,6 +151,7 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
 }) => {
   const sheetRef = useRef<HTMLDivElement>(null);
   const [selectedCatalogServiceId, setSelectedCatalogServiceId] = useState<string>('');
+  const [toolTab, setToolTab] = useState<'build' | 'extras' | 'settlement'>('build');
 
   const dateStr = useMemo(() => {
     return new Date().toLocaleDateString('es-PA', {
@@ -959,9 +960,45 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
           </div>
         </div>
 
-        {/* Selector Rápido de Catálogo + Sección "Extras en sitio" (Upsells) */}
-        <div className="pt-2.5 border-t border-[#DED4C5]/60 grid grid-cols-1 lg:grid-cols-12 gap-3">
-          <div className="lg:col-span-5 space-y-1">
+        {/* Mini-pestañas de herramientas internas (la hoja oficial debajo queda intacta) */}
+        <div className="flex items-center gap-1 p-1 bg-[#DED4C5]/40 rounded-xl overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setToolTab('build')}
+            className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              toolTab === 'build' ? 'bg-[#082D60] text-white shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
+            }`}
+          >
+            Armar
+          </button>
+          <button
+            type="button"
+            onClick={() => setToolTab('extras')}
+            className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
+              toolTab === 'extras' ? 'bg-[#082D60] text-white shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
+            }`}
+          >
+            <span>Extras</span>
+            {quoteFinancials.upsellsFixerBonus > 0 && (
+              <span className="px-1.5 py-0.5 rounded-md bg-emerald-600/15 text-emerald-800 text-[10px] font-extrabold">
+                +${quoteFinancials.upsellsFixerBonus.toFixed(2)}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setToolTab('settlement')}
+            className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              toolTab === 'settlement' ? 'bg-[#082D60] text-white shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
+            }`}
+          >
+            {quoteFinancials.validationError ? '⚠️ Liquidación' : 'Liquidación'}
+          </button>
+        </div>
+
+        {/* Panel Armar: selector rápido del tarifario oficial */}
+        {toolTab === 'build' && (
+          <div className="pt-2.5 border-t border-[#DED4C5]/60 space-y-1">
             <label className="text-[10px] font-bold text-[#756A5D] uppercase tracking-wider block">
               Agregar Servicio del Tarifario Oficial
             </label>
@@ -986,8 +1023,11 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
               </select>
             </div>
           </div>
+        )}
 
-          <div className="lg:col-span-7 space-y-1">
+        {/* Panel Extras en sitio (upsells con bono directo al fixer) */}
+        {toolTab === 'extras' && (
+          <div className="pt-2.5 border-t border-[#DED4C5]/60 space-y-1">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] font-bold text-[#082D60] uppercase tracking-wider">
                 ⚡ Extras en sitio (Bono directo al Fixer · Cliente solo ve precio instalado)
@@ -1011,9 +1051,10 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
               ))}
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Barra Interna de Liquidación Fixer (NUNCA visible en PDF ni WhatsApp) */}
+        {/* Panel Liquidación: barra interna del fixer (NUNCA visible en PDF ni WhatsApp) */}
+        {toolTab === 'settlement' && (
         <div className="pt-2.5 border-t border-[#DED4C5]/60 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex flex-wrap items-center gap-2">
             <span className="px-2.5 py-1 rounded-lg bg-[#F6F4EF] border border-[#DED4C5] text-[#1F2421] font-semibold">
@@ -1065,6 +1106,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* HOJA OFICIAL DEL COTIZADOR 1:1 (Se exporta a PDF en 1 página carta) */}
@@ -1472,7 +1514,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
         </div>
 
         {/* Barra de Acciones (1:1 con cotizador-fixit + envío directo WhatsApp) */}
-        <div className="q-actions-bar q-no-print">
+        <div className="q-actions-bar q-no-print quoter-actions-dock">
           <button
             type="button"
             id="btn-copy-whatsapp"

@@ -134,7 +134,7 @@ export const AuthRegisterScreen: React.FC<AuthRegisterScreenProps> = ({
         </button>
 
         <span className="text-[11px] font-medium text-[#756A5D]">
-          Registro de cliente
+          Crear cuenta
         </span>
       </header>
 
