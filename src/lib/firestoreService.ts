@@ -599,15 +599,36 @@ export async function createOrderInFirestore(
     tecnico_id: payload.tecnico_id,
     tecnico_asignado: payload.tecnico_asignado,
     tecnico_nombre: payload.tecnico_nombre || payload.tecnico_asignado,
-    costo_inspeccion: payload.costo_inspeccion ?? 35,
+    costo_inspeccion: payload.costo_inspeccion ?? 25,
     cotizacion: payload.cotizacion ?? payload.precio_lanzamiento ?? 35,
     total_facturado: payload.total_facturado ?? payload.precio_lanzamiento ?? 35,
+    costo_materiales:
+      payload.costo_materiales ?? payload.servicio_probable?.embedded_material_usd ?? 0,
+    visitOutcome:
+      payload.visitOutcome ??
+      (payload.servicio_probable?.id === 'DIAG-001' || payload.servicio_probable?.diagnostic_required
+        ? 'pendiente'
+        : undefined),
     comision_fixit:
       payload.comision_fixit ??
-      calcCommission(payload.total_facturado ?? payload.precio_lanzamiento ?? 35, DEFAULT_COMMISSION_RATE),
+      calcCommission(
+        getCommissionBase({
+          total_facturado: payload.total_facturado ?? payload.precio_lanzamiento ?? 35,
+          costo_materiales: payload.costo_materiales ?? payload.servicio_probable?.embedded_material_usd ?? 0,
+          servicio_probable: payload.servicio_probable,
+        }),
+        DEFAULT_COMMISSION_RATE
+      ),
     costo_tecnico:
       payload.costo_tecnico ??
-      calcNet(payload.total_facturado ?? payload.precio_lanzamiento ?? 35, DEFAULT_COMMISSION_RATE),
+      calcNet(
+        getCommissionBase({
+          total_facturado: payload.total_facturado ?? payload.precio_lanzamiento ?? 35,
+          costo_materiales: payload.costo_materiales ?? payload.servicio_probable?.embedded_material_usd ?? 0,
+          servicio_probable: payload.servicio_probable,
+        }),
+        DEFAULT_COMMISSION_RATE
+      ),
     estado_pago: payload.estado_pago || 'Pendiente',
     metodo_pago: payload.metodo_pago,
     notas_internas: payload.notas_internas || '',

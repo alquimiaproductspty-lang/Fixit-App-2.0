@@ -3,8 +3,23 @@ import { FixitLogo } from './FixitLogo';
 import { ActiveUser, db } from '../lib/firebase';
 import { createQuoteInFirestore, sanitizeForFirestore } from '../lib/firestoreService';
 import { getNextMonthlyQuoteFolio } from '../lib/orderConsecutive';
-import { ManagedQuote, QuoteItem } from '../types';
+import { FixitUpsell, ManagedQuote, QuoteItem, Service } from '../types';
+import { FIXIT_CATALOG, FIXIT_UPSELLS, getServiceById } from '../data/catalog';
+import {
+  DEFAULT_COMMISSION_RATE,
+  DEFAULT_MIN_STANDALONE_COMMISSION_USD,
+  QuoterLineItem,
+  buildServiceQuoterLines,
+  buildUpsellQuoterLine,
+  calcCommission,
+  calcLineSubtotal,
+  calcNet,
+  calcQuoteFinancialSummary,
+  round2,
+} from '../lib/commissions';
 import { doc, updateDoc } from 'firebase/firestore';
+
+export type { QuoterLineItem };
 
 export const QUOTER_CONFIG = {
   COMPANY_NAME: 'FIXIT PANAMÁ',
@@ -25,19 +40,13 @@ export const QUOTER_CONFIG = {
   SEQUENCE_KEY: 'fixit_monthly_sequence_v1',
 } as const;
 
-export interface QuoterLineItem {
-  id: number | string;
-  description: string;
-  qty: number;
-  price: number;
-}
-
 export interface LinkedOrderContext {
   id: string;
   numero_pedido: string;
   cliente_nombre: string;
   cliente_telefono: string;
   direccion: string;
+  servicio_id?: string;
   servicio_nombre?: string;
   precio_sugerido?: number;
 }
@@ -124,6 +133,8 @@ interface FixerQuoterProps {
   onQuoteSaved?: (quote: ManagedQuote) => void;
   onOpenCalculator?: () => void;
   onOpenCatalog?: () => void;
+  commissionRate?: number;
+  minStandaloneCommission?: number;
 }
 
 export const FixerQuoter: React.FC<FixerQuoterProps> = ({
@@ -135,8 +146,11 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
   onQuoteSaved,
   onOpenCalculator,
   onOpenCatalog,
+  commissionRate = DEFAULT_COMMISSION_RATE,
+  minStandaloneCommission = DEFAULT_MIN_STANDALONE_COMMISSION_USD,
 }) => {
   const sheetRef = useRef<HTMLDivElement>(null);
+  const [selectedCatalogServiceId, setSelectedCatalogServiceId] = useState<string>('');
 
   const dateStr = useMemo(() => {
     return new Date().toLocaleDateString('es-PA', {
@@ -178,7 +192,7 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
       clientName: '',
       clientPhone: '',
       clientLocation: '',
-      items: [{ id: 1, description: 'Mano de obra técnica especializada', qty: 1, price: 0 }] as QuoterLineItem[],
+      items: [{ id: 1, description: 'Mano de obra técnica especializada', qty: 1, price: 0, kind: 'labor' }] as QuoterLineItem[],
       discountValue: 0,
       discountType: 'percent' as 'percent' | 'fixed',
       applyItbms: false,
@@ -252,19 +266,24 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
     setClientName(linkedOrder.cliente_nombre || '');
     setClientPhone(linkedOrder.cliente_telefono || '');
     setClientLocation(linkedOrder.direccion || 'Ciudad de Panamá');
-    if (linkedOrder.servicio_nombre) {
+    if (linkedOrder.servicio_id || linkedOrder.servicio_nombre) {
+      const matchedCatalogSvc = linkedOrder.servicio_id ? getServiceById(linkedOrder.servicio_id) : undefined;
       setItems((prev) => {
         const isDefaultEmpty =
           prev.length === 1 &&
           (prev[0].description === 'Mano de obra técnica especializada' || !prev[0].description.trim()) &&
           prev[0].price === 0;
         if (isDefaultEmpty) {
+          if (matchedCatalogSvc) {
+            return buildServiceQuoterLines(matchedCatalogSvc);
+          }
           return [
             {
               id: Date.now(),
               description: linkedOrder.servicio_nombre!,
               qty: 1,
               price: linkedOrder.precio_sugerido ?? 0,
+              kind: 'labor',
             },
           ];
         }
@@ -292,28 +311,33 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
     }
   }, [pendingItemsToAdd, onConsumePendingItems]);
 
-  // Totals calculation engine (exact match to cotizador-fixit)
+  // Motor de comisiones, materiales embebidos, upsells y validaciones duras
+  const quoteFinancials = useMemo(() => {
+    return calcQuoteFinancialSummary(items, commissionRate, minStandaloneCommission);
+  }, [items, commissionRate, minStandaloneCommission]);
+
+  // Totals calculation engine (redondeo estricto a 2 decimales por línea y subtotal)
   const totals = useMemo(() => {
-    const grossSubtotal = items.reduce((acc, cur) => {
-      const q = isNaN(cur.qty) ? 0 : cur.qty;
-      const p = isNaN(cur.price) ? 0 : cur.price;
-      return acc + Math.max(0, q * p);
-    }, 0);
+    const grossSubtotal = round2(
+      items.reduce((acc, cur) => {
+        return acc + calcLineSubtotal(cur.qty, cur.price);
+      }, 0)
+    );
 
     let discountAmount = 0;
     if (discountValue > 0) {
       if (discountType === 'percent') {
         const clampedPct = Math.min(100, Math.max(0, discountValue));
-        discountAmount = grossSubtotal * (clampedPct / 100);
+        discountAmount = round2(grossSubtotal * (clampedPct / 100));
       } else {
-        discountAmount = Math.min(discountValue, grossSubtotal);
+        discountAmount = round2(Math.min(discountValue, grossSubtotal));
       }
     }
 
-    const netSubtotal = Math.max(0, grossSubtotal - discountAmount);
-    const itbms = applyItbms ? netSubtotal * QUOTER_CONFIG.ITBMS_RATE : 0;
-    const total = netSubtotal + itbms;
-    const anticipo = total * QUOTER_CONFIG.DEPOSIT_RATE;
+    const netSubtotal = round2(Math.max(0, grossSubtotal - discountAmount));
+    const itbms = applyItbms ? round2(netSubtotal * QUOTER_CONFIG.ITBMS_RATE) : 0;
+    const total = round2(netSubtotal + itbms);
+    const anticipo = round2(total * QUOTER_CONFIG.DEPOSIT_RATE);
 
     return {
       grossSubtotal,
@@ -381,26 +405,25 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
         id: String(it.id || idx + 1),
         descripcion: it.description.trim() || 'Mano de obra técnica especializada',
         cantidad: Math.max(1, Number(it.qty) || 1),
-        precio_unitario: Math.max(0, Number(it.price) || 0),
-        total: Math.round(Math.max(1, Number(it.qty) || 1) * Math.max(0, Number(it.price) || 0) * 100) / 100,
+        precio_unitario: round2(Math.max(0, Number(it.price) || 0)),
+        total: calcLineSubtotal(Math.max(1, Number(it.qty) || 1), Math.max(0, Number(it.price) || 0)),
+        kind: it.kind || 'labor',
+        service_id: it.serviceId,
+        upsell_id: it.upsellId,
+        addon_only: it.addonOnly,
+        promo_applied: it.promoApplied,
       }));
 
       const quoteDocId = currentFolio.replace(/[^a-zA-Z0-9_-]/g, '_');
       const fixerName = currentUser.displayName || currentUser.nombre || currentUser.email || 'Fixer FIXIT';
       const techId = currentUser.technicianId || currentUser.uid;
 
-      const rawMaterialsSum = quoteItems
-        .filter((it) => /material|insumo|repuesto/i.test(it.descripcion))
-        .reduce((acc, it) => acc + (Number(it.total) || 0), 0);
-      const rawLaborSum = Math.max(0, totals.grossSubtotal - rawMaterialsSum);
-      const disaggregatedLabor =
-        rawMaterialsSum > 0 && rawLaborSum > 0
-          ? Math.round(rawLaborSum * 100) / 100
-          : Math.round(totals.grossSubtotal * 100) / 100;
-      const disaggregatedMaterials =
-        rawMaterialsSum > 0 && rawLaborSum > 0
-          ? Math.round(rawMaterialsSum * 100) / 100
-          : 0;
+      // Descuento se deduce de la mano de obra (nunca de materiales ni upsells)
+      const effectiveLaborBase = round2(Math.max(0, quoteFinancials.laborBase - totals.discountAmount));
+      const laborCommission = calcCommission(effectiveLaborBase, commissionRate);
+      const laborNet = calcNet(effectiveLaborBase, commissionRate);
+      const totalFixitCommission = round2(laborCommission + quoteFinancials.upsellsFixitNet);
+      const totalFixerNet = round2(laborNet + quoteFinancials.upsellsFixerBonus);
 
       const payload: Omit<ManagedQuote, 'id'> & { id?: string } = sanitizeForFirestore({
         id: quoteDocId,
@@ -412,20 +435,26 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
         cliente_telefono: clientPhone.trim() || '—',
         cliente_ubicacion: clientLocation.trim() || 'Ciudad de Panamá',
         servicio_nombre: quoteItems.map((i) => i.descripcion).join(' + ').slice(0, 180) || 'Servicio Técnico FIXIT',
-        mano_de_obra: disaggregatedLabor,
-        materiales: disaggregatedMaterials,
-        cargos_adicionales: 0,
-        subtotal: Math.round(totals.netSubtotal * 100) / 100,
-        subtotal_bruto: Math.round(totals.grossSubtotal * 100) / 100,
-        subtotal_neto: Math.round(totals.netSubtotal * 100) / 100,
-        itbms: Math.round(totals.itbms * 100) / 100,
+        mano_de_obra: effectiveLaborBase,
+        materiales: quoteFinancials.materialsReimbursement,
+        cargos_adicionales: quoteFinancials.upsellsTotal,
+        upsells_total: quoteFinancials.upsellsTotal,
+        upsells_costo_mayorista: quoteFinancials.upsellsWholesaleCost,
+        upsells_bono_fixer: quoteFinancials.upsellsFixerBonus,
+        upsells_neto_fixit: quoteFinancials.upsellsFixitNet,
+        comision_fixit: totalFixitCommission,
+        costo_tecnico: totalFixerNet,
+        subtotal: totals.netSubtotal,
+        subtotal_bruto: totals.grossSubtotal,
+        subtotal_neto: totals.netSubtotal,
+        itbms: totals.itbms,
         apply_itbms: applyItbms,
-        descuento: Math.round(totals.discountAmount * 100) / 100,
+        descuento: totals.discountAmount,
         descuento_tipo: discountType,
         descuento_valor: discountValue,
-        total: Math.round(totals.total * 100) / 100,
-        precio: Math.round(totals.total * 100) / 100,
-        anticipo: Math.round(totals.anticipo * 100) / 100,
+        total: totals.total,
+        precio: totals.total,
+        anticipo: totals.anticipo,
         items: quoteItems,
         tecnico_id: techId,
         tecnico_nombre: fixerName,
@@ -447,11 +476,14 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
 
       // If linked to an order, also sync the quoted amount onto the order if allowed
       if (linkedOrder?.id) {
-        const roundedTotal = Math.round(totals.total * 100) / 100;
+        const roundedTotal = totals.total;
         try {
           await updateDoc(doc(db, 'requests', linkedOrder.id), {
             cotizacion: roundedTotal,
             total_facturado: roundedTotal,
+            costo_materiales: quoteFinancials.materialsReimbursement,
+            comision_fixit: totalFixitCommission,
+            costo_tecnico: totalFixerNet,
             updatedAt: nowIso,
           });
         } catch {
@@ -461,6 +493,9 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
           await updateDoc(doc(db, 'orders', linkedOrder.id), {
             cotizacion: roundedTotal,
             total_facturado: roundedTotal,
+            costo_materiales: quoteFinancials.materialsReimbursement,
+            comision_fixit: totalFixitCommission,
+            costo_tecnico: totalFixerNet,
             updatedAt: nowIso,
           });
         } catch {}
@@ -485,8 +520,76 @@ export const FixerQuoter: React.FC<FixerQuoterProps> = ({
         description: '',
         qty: 1,
         price: 0,
+        kind: 'labor',
       },
     ]);
+  };
+
+  const handleAddMaterialRow = () => {
+    setItems((prev) => [
+      ...prev,
+      {
+        id: Date.now() + Math.random(),
+        description: 'Materiales / Repuestos (reembolso 0% comisión)',
+        qty: 1,
+        price: 0,
+        kind: 'material',
+      },
+    ]);
+  };
+
+  const handleAddCatalogServiceById = (serviceId: string) => {
+    const svc: Service | undefined = getServiceById(serviceId);
+    if (!svc) return;
+    const builtLines = buildServiceQuoterLines(svc);
+    setItems((prev) => {
+      const isDefaultEmpty =
+        prev.length === 1 &&
+        (prev[0].description === 'Mano de obra técnica especializada' || !prev[0].description.trim()) &&
+        prev[0].price === 0;
+      return isDefaultEmpty ? [...builtLines] : [...prev, ...builtLines];
+    });
+    setSelectedCatalogServiceId('');
+    if (svc.embedded_material_usd && svc.embedded_material_usd > 0) {
+      showToast(
+        `✅ ${svc.id} dividido automáticamente: $${(svc.price - svc.embedded_material_usd).toFixed(2)} MO + $${svc.embedded_material_usd.toFixed(2)} Materiales (0% com.)`,
+        'success'
+      );
+    } else {
+      showToast(`✅ ${svc.service_name} agregado al cotizador`, 'success');
+    }
+  };
+
+  const handleAddUpsell = (upsell: FixitUpsell) => {
+    const line = buildUpsellQuoterLine(upsell, 1);
+    setItems((prev) => {
+      const isDefaultEmpty =
+        prev.length === 1 &&
+        (prev[0].description === 'Mano de obra técnica especializada' || !prev[0].description.trim()) &&
+        prev[0].price === 0;
+      return isDefaultEmpty ? [line] : [...prev, line];
+    });
+    showToast(
+      `⚡ Extra en sitio "${upsell.name}" ($${upsell.price_usd.toFixed(2)}) agregado · Tu bono fijo: +$${upsell.fixer_bonus_usd.toFixed(2)}`,
+      'success'
+    );
+  };
+
+  const handleTogglePromoOnRow = (index: number) => {
+    setItems((prev) =>
+      prev.map((it, idx) => {
+        if (idx !== index) return it;
+        const promoPrice = it.promoPriceUsd;
+        const regPrice = it.regularPriceUsd ?? 60;
+        if (!promoPrice) return it;
+        const nextApplied = !it.promoApplied;
+        return {
+          ...it,
+          promoApplied: nextApplied,
+          price: nextApplied ? promoPrice : regPrice,
+        };
+      })
+    );
   };
 
   const handleRemoveRow = (index: number) => {
@@ -603,6 +706,10 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
       showToast('⚠️ Por favor ingresa al menos un servicio con su precio', 'warn');
       return;
     }
+    if (quoteFinancials.validationError) {
+      showToast(`⚠️ ${quoteFinancials.validationError}`, 'warn');
+      return;
+    }
 
     const msg = buildWhatsAppMessage();
     const qNum = quoteNumber.trim() || getActiveFolio();
@@ -623,6 +730,10 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
       showToast('⚠️ Por favor ingresa al menos un servicio con su precio', 'warn');
       return;
     }
+    if (quoteFinancials.validationError) {
+      showToast(`⚠️ ${quoteFinancials.validationError}`, 'warn');
+      return;
+    }
     const msg = buildWhatsAppMessage();
     await recordAndPersistQuote('whatsapp');
 
@@ -641,6 +752,10 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
     const validItems = items.filter((i) => i.description && i.description.trim() !== '');
     if (validItems.length === 0 && totals.grossSubtotal === 0) {
       showToast('⚠️ Agrega al menos un servicio antes de generar el PDF', 'warn');
+      return;
+    }
+    if (quoteFinancials.validationError) {
+      showToast(`⚠️ ${quoteFinancials.validationError}`, 'warn');
       return;
     }
 
@@ -701,6 +816,10 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
       showToast('⚠️ Agrega al menos un servicio antes de compartir el PDF', 'warn');
       return;
     }
+    if (quoteFinancials.validationError) {
+      showToast(`⚠️ ${quoteFinancials.validationError}`, 'warn');
+      return;
+    }
 
     const qNum = quoteNumber.trim() || getActiveFolio();
     const rawClient = clientName.trim() || 'Cliente';
@@ -755,6 +874,10 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
   };
 
   const handlePrint = async () => {
+    if (quoteFinancials.validationError) {
+      showToast(`⚠️ ${quoteFinancials.validationError}`, 'warn');
+      return;
+    }
     await recordAndPersistQuote('print');
     window.print();
   };
@@ -778,7 +901,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
       setClientName('');
       setClientPhone('');
       setClientLocation('');
-      setItems([{ id: Date.now(), description: 'Mano de obra técnica especializada', qty: 1, price: 0 }]);
+      setItems([{ id: Date.now(), description: 'Mano de obra técnica especializada', qty: 1, price: 0, kind: 'labor' }]);
       setDiscountValue(0);
       setDiscountType('percent');
       setApplyItbms(false);
@@ -790,47 +913,156 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
   return (
     <div className="space-y-4">
       {/* Banner de Pedido Vinculado o Accesos Rápidos de Apoyo (Oculto en PDF/Print) */}
-      <div className="max-w-[820px] mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-3.5 shadow-2xs q-no-print fixer-nav-chrome">
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {linkedOrder ? (
-            <div className="inline-flex items-center gap-2 bg-[#082D60]/10 border border-[#082D60]/20 text-[#082D60] px-3 py-1 rounded-xl text-xs font-bold">
-              <span>🔗 Pedido vinculado: {linkedOrder.numero_pedido}</span>
-              {onClearLinkedOrder && (
-                <button
-                  type="button"
-                  onClick={onClearLinkedOrder}
-                  className="text-rose-600 hover:text-rose-800 font-extrabold ml-1 cursor-pointer"
-                  title="Desvincular pedido"
-                >
-                  ×
-                </button>
-              )}
-            </div>
-          ) : (
-            <span className="text-xs font-semibold text-[#756A5D]">
-              💡 Cotización libre o vinculada a pedido asignado. Cada emisión se guarda en el CRM.
-            </span>
-          )}
+      <div className="max-w-[820px] mx-auto bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-3.5 shadow-2xs space-y-3 q-no-print fixer-nav-chrome">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {linkedOrder ? (
+              <div className="inline-flex items-center gap-2 bg-[#082D60]/10 border border-[#082D60]/20 text-[#082D60] px-3 py-1 rounded-xl text-xs font-bold">
+                <span>🔗 Pedido vinculado: {linkedOrder.numero_pedido}</span>
+                {onClearLinkedOrder && (
+                  <button
+                    type="button"
+                    onClick={onClearLinkedOrder}
+                    className="text-rose-600 hover:text-rose-800 font-extrabold ml-1 cursor-pointer"
+                    title="Desvincular pedido"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ) : (
+              <span className="text-xs font-semibold text-[#756A5D]">
+                💡 Cotización libre o vinculada a pedido asignado. Cada emisión se guarda en el CRM.
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {onOpenCatalog && (
+              <button
+                type="button"
+                onClick={onOpenCatalog}
+                className="py-1.5 px-3 rounded-xl bg-[#082D60]/10 hover:bg-[#082D60]/15 text-[#082D60] font-bold text-xs cursor-pointer transition-colors"
+              >
+                📋 + Tarifario Oficial
+              </button>
+            )}
+            {onOpenCalculator && (
+              <button
+                type="button"
+                onClick={onOpenCalculator}
+                className="py-1.5 px-3 rounded-xl bg-[#0B72D9]/10 hover:bg-[#0B72D9]/20 text-[#0B72D9] font-bold text-xs cursor-pointer transition-colors"
+              >
+                🎨 + Calculadora Pintura m²
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {onOpenCatalog && (
-            <button
-              type="button"
-              onClick={onOpenCatalog}
-              className="py-1.5 px-3 rounded-xl bg-[#082D60]/10 hover:bg-[#082D60]/15 text-[#082D60] font-bold text-xs cursor-pointer transition-colors"
-            >
-              📋 + Tarifario Oficial
-            </button>
-          )}
-          {onOpenCalculator && (
-            <button
-              type="button"
-              onClick={onOpenCalculator}
-              className="py-1.5 px-3 rounded-xl bg-[#0B72D9]/10 hover:bg-[#0B72D9]/20 text-[#0B72D9] font-bold text-xs cursor-pointer transition-colors"
-            >
-              🎨 + Calculadora Pintura m²
-            </button>
+        {/* Selector Rápido de Catálogo + Sección "Extras en sitio" (Upsells) */}
+        <div className="pt-2.5 border-t border-[#DED4C5]/60 grid grid-cols-1 lg:grid-cols-12 gap-3">
+          <div className="lg:col-span-5 space-y-1">
+            <label className="text-[10px] font-bold text-[#756A5D] uppercase tracking-wider block">
+              Agregar Servicio del Tarifario Oficial
+            </label>
+            <div className="flex items-center gap-1.5">
+              <select
+                value={selectedCatalogServiceId}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedCatalogServiceId(val);
+                  if (val) handleAddCatalogServiceById(val);
+                }}
+                className="w-full py-1.5 px-2.5 bg-[#F6F4EF] border border-[#DED4C5] rounded-xl text-xs font-medium text-[#1F2421] focus:outline-none focus:border-[#0B72D9]"
+              >
+                <option value="">Seleccionar servicio PVP...</option>
+                {FIXIT_CATALOG.filter((s) => s.active !== false).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.id} · {s.service_name} (${s.price.toFixed(2)}
+                    {s.promo_price_usd ? ` / Promo $${s.promo_price_usd.toFixed(2)}` : ''}
+                    {s.addon_only ? ' · Solo complemento' : ''})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="lg:col-span-7 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold text-[#082D60] uppercase tracking-wider">
+                ⚡ Extras en sitio (Bono directo al Fixer · Cliente solo ve precio instalado)
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {FIXIT_UPSELLS.filter((u) => u.active).map((upsell) => (
+                <button
+                  key={upsell.id}
+                  type="button"
+                  onClick={() => handleAddUpsell(upsell)}
+                  className="py-1.5 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300/70 text-[#1F2421] text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                  title={`${upsell.description} — Precio cliente $${upsell.price_usd.toFixed(2)} · Tu bono fijo: +$${upsell.fixer_bonus_usd.toFixed(2)}`}
+                >
+                  <span>+ {upsell.name}</span>
+                  <span className="font-mono text-[#082D60]">${upsell.price_usd.toFixed(2)}</span>
+                  <span className="px-1.5 py-0.5 rounded-md bg-emerald-600/15 text-emerald-800 text-[10px] font-extrabold">
+                    Bono +${upsell.fixer_bonus_usd.toFixed(2)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Barra Interna de Liquidación Fixer (NUNCA visible en PDF ni WhatsApp) */}
+        <div className="pt-2.5 border-t border-[#DED4C5]/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-2.5 py-1 rounded-lg bg-[#F6F4EF] border border-[#DED4C5] text-[#1F2421] font-semibold">
+              Base MO:{' '}
+              <strong className="font-mono">
+                ${round2(Math.max(0, quoteFinancials.laborBase - totals.discountAmount)).toFixed(2)}
+              </strong>
+              {quoteFinancials.paintingMinApplied && (
+                <span className="ml-1 text-[10px] text-[#0B72D9] font-bold">(Mín. $75 MO)</span>
+              )}
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-semibold">
+              Comisión Fixit ({round2(commissionRate * 100)}% s/MO):{' '}
+              <strong className="font-mono">
+                -$
+                {calcCommission(
+                  round2(Math.max(0, quoteFinancials.laborBase - totals.discountAmount)),
+                  commissionRate
+                ).toFixed(2)}
+              </strong>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold">
+              Tu neto MO:{' '}
+              <strong className="font-mono">
+                $
+                {calcNet(
+                  round2(Math.max(0, quoteFinancials.laborBase - totals.discountAmount)),
+                  commissionRate
+                ).toFixed(2)}
+              </strong>
+            </span>
+            {quoteFinancials.materialsReimbursement > 0 && (
+              <span className="px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 font-semibold">
+                Materiales (0% com.):{' '}
+                <strong className="font-mono">+${quoteFinancials.materialsReimbursement.toFixed(2)}</strong>
+              </span>
+            )}
+            {quoteFinancials.upsellsFixerBonus > 0 && (
+              <span className="px-2.5 py-1 rounded-lg bg-purple-50 border border-purple-200 text-purple-900 font-bold">
+                Bono extras en sitio:{' '}
+                <strong className="font-mono">+${quoteFinancials.upsellsFixerBonus.toFixed(2)}</strong>
+              </span>
+            )}
+          </div>
+
+          {quoteFinancials.validationError && (
+            <div className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 font-bold text-xs flex items-center gap-1.5">
+              <span>⚠️ {quoteFinancials.validationError}</span>
+            </div>
           )}
         </div>
       </div>
@@ -946,14 +1178,25 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
         <section className="q-table-section" aria-label="Desglose de Servicios">
           <div className="q-table-header-bar">
             <h2 className="q-section-title">Alcance del Trabajo</h2>
-            <button
-              type="button"
-              id="btn-add-row"
-              onClick={handleAddRow}
-              className="q-btn-add-row q-no-print"
-            >
-              + Agregar Fila
-            </button>
+            <div className="flex items-center gap-1.5 q-no-print">
+              <button
+                type="button"
+                onClick={handleAddMaterialRow}
+                className="q-btn-add-row"
+                style={{ background: '#e0f2fe', color: '#0369a1' }}
+                title="Agregar línea de materiales o repuestos (0% comisión, reembolso íntegro)"
+              >
+                + Fila Material (0% com.)
+              </button>
+              <button
+                type="button"
+                id="btn-add-row"
+                onClick={handleAddRow}
+                className="q-btn-add-row"
+              >
+                + Agregar Fila MO
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-md">
@@ -969,7 +1212,8 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
               </thead>
               <tbody id="items-table">
                 {items.map((item, index) => {
-                  const rowSubtotal = Math.max(0, (item.qty || 0) * (item.price || 0));
+                  const rowSubtotal = calcLineSubtotal(item.qty || 0, item.price || 0);
+                  const hasPromoToggle = typeof item.promoPriceUsd === 'number' && item.promoPriceUsd > 0;
                   return (
                     <tr key={item.id}>
                       <td style={{ width: '50%' }}>
@@ -981,6 +1225,41 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
                           className="q-no-print"
                           style={{ width: '100%' }}
                         />
+                        {/* Controles internos por línea (OCULTOS en PDF y Print) */}
+                        {(hasPromoToggle || item.kind === 'material' || item.kind === 'upsell' || item.addonOnly) && (
+                          <div className="q-no-print flex flex-wrap items-center gap-1.5 mt-1">
+                            {item.kind === 'material' && (
+                              <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-[10px] font-bold">
+                                Reembolso Material (0% comisión)
+                              </span>
+                            )}
+                            {item.kind === 'upsell' && (
+                              <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-bold">
+                                Extra en sitio · Tu bono: +${Number(item.fixerBonusUsd || 0).toFixed(2)} c/u
+                              </span>
+                            )}
+                            {item.addonOnly && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                                Solo complemento (requiere servicio principal)
+                              </span>
+                            )}
+                            {hasPromoToggle && (
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePromoOnRow(index)}
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-colors ${
+                                  item.promoApplied
+                                    ? 'bg-emerald-600 text-white border-emerald-700'
+                                    : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                                }`}
+                              >
+                                {item.promoApplied
+                                  ? `✓ Promo aplicada (${item.promoLabel || 'Promo'}: $${item.promoPriceUsd!.toFixed(2)})`
+                                  : `Aplicar promo (${item.promoLabel || 'Promo'}: $${item.promoPriceUsd!.toFixed(2)})`}
+                              </button>
+                            )}
+                          </div>
+                        )}
                         <div className="q-print-only q-text-desc-print">
                           {item.description.trim() || 'Mano de obra técnica especializada'}
                         </div>

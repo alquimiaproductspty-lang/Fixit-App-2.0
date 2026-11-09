@@ -21,11 +21,14 @@ import {
 } from '../lib/soundAlert';
 import {
   DEFAULT_COMMISSION_RATE,
+  DEFAULT_MIN_STANDALONE_COMMISSION_USD,
   getCommissionBase,
   calcCommission,
   calcNet,
+  calcCommissionBreakdown,
   isLaborCommissionBase,
   normalizeRate,
+  normalizeMinStandaloneCommission,
   round2,
 } from '../lib/commissions';
 import { getNextMonthlyOrderNumber } from '../lib/orderConsecutive';
@@ -51,6 +54,7 @@ import {
   type ManagedPayment,
   type PaymentMethod,
   type PaymentStatus,
+  type VisitOutcome,
 } from '../types';
 import { 
   Users, 
@@ -105,7 +109,7 @@ export interface AdminFixer {
   idoneidad_numero?: string;
   photoURL?: string;
   disponibilidad: 'Disponible' | 'En servicio' | 'Inactivo';
-  calificacion: number;
+  calificacion: number | null;
   trabajos_realizados: number;
   zona_cobertura?: string;
   createdAt?: any;
@@ -140,12 +144,17 @@ export interface AdminOrder {
     service_name?: string;
     category?: string;
     price?: number;
+    embedded_material_usd?: number;
+    diagnostic_required?: boolean;
   };
   total_facturado?: number;
   precio_regular?: number;
   cotizacion?: number;
+  costo_materiales?: number;
   comision_fixit?: number;
   costo_tecnico?: number;
+  visitOutcome?: VisitOutcome;
+  estado_pago?: string;
   estado?: string;
   tecnico_id?: string;
   tecnico_asignado?: string;
@@ -410,10 +419,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   } | null>(null);
   const [isSavingInviteCode, setIsSavingInviteCode] = useState(false);
 
-  // === COMISIÓN FIXIT (settings/fixer_commission, default 0.15 = 15%) ===
+  // === COMISIÓN FIXIT (settings/fixer_commission, default 0.15 = 15%, piso $3.00) ===
   const [commissionRate, setCommissionRate] = useState<number>(DEFAULT_COMMISSION_RATE);
   const [commissionInputPct, setCommissionInputPct] = useState<string>(
     String(round2(DEFAULT_COMMISSION_RATE * 100))
+  );
+  const [minStandaloneCommission, setMinStandaloneCommission] = useState<number>(
+    DEFAULT_MIN_STANDALONE_COMMISSION_USD
+  );
+  const [minCommissionInputUsd, setMinCommissionInputUsd] = useState<string>(
+    DEFAULT_MIN_STANDALONE_COMMISSION_USD.toFixed(2)
   );
   const [isEditingCommission, setIsEditingCommission] = useState<boolean>(false);
   const [isSavingCommission, setIsSavingCommission] = useState<boolean>(false);
@@ -422,6 +437,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     updatedBy?: string;
     updatedAt?: string;
   } | null>(null);
+  const [updatingVisitOutcomeId, setUpdatingVisitOutcomeId] = useState<string | null>(null);
 
   // === ALERTA SONORA DE NUEVOS PEDIDOS (ADMIN) ===
   const [adminSoundEnabled, setAdminSoundEnabledState] = useState<boolean>(() => isSoundEnabled());
@@ -441,6 +457,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [manualServiceName, setManualServiceName] = useState(FIXIT_CATALOG[0]?.service_name || '');
   const [manualCategory, setManualCategory] = useState(FIXIT_CATALOG[0]?.category || 'Reparaciones del hogar');
   const [manualAmount, setManualAmount] = useState(String(FIXIT_CATALOG[0]?.price || 35));
+  const [manualApplyPromo, setManualApplyPromo] = useState<boolean>(false);
   const [manualAddress, setManualAddress] = useState('');
   const [manualFixerId, setManualFixerId] = useState('');
   const [manualScheduledDate, setManualScheduledDate] = useState('');
@@ -586,7 +603,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             idoneidad_numero: data.idoneidad_numero || '',
             photoURL: data.photoURL || '',
             disponibilidad: data.disponibilidad || (data.activo === false ? 'Inactivo' : 'Disponible'),
-            calificacion: typeof data.calificacion === 'number' ? data.calificacion : 4.9,
+            calificacion: typeof data.calificacion === 'number' ? data.calificacion : null,
             trabajos_realizados: data.trabajos_realizados || data.servicios_completados || 0,
             zona_cobertura: data.zona_cobertura || 'Ciudad de Panamá',
             createdAt: data.createdAt,
@@ -611,7 +628,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 idoneidad_numero: tData.idoneidad_numero || '',
                 photoURL: tData.photoURL || '',
                 disponibilidad: tData.activo === false ? 'Inactivo' : 'Disponible',
-                calificacion: typeof tData.calificacion === 'number' ? tData.calificacion : 5.0,
+                calificacion: typeof tData.calificacion === 'number' ? tData.calificacion : null,
                 trabajos_realizados: tData.servicios_completados || 0,
                 zona_cobertura: tData.zona_cobertura || 'Ciudad de Panamá',
               });
@@ -716,17 +733,23 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     };
   }, [isAdmin]);
 
-  // Cargar tasa de comisión desde settings/fixer_commission (lectura firmada, default 0.15)
+  // Cargar tasa de comisión y piso de comisión mínima desde settings/fixer_commission
   useEffect(() => {
     if (!hasAdminOrOperatorAccess) return;
     let unsubCommission: (() => void) | null = null;
     const commissionDocRef = doc(db, 'settings', 'fixer_commission');
 
     const applySnap = (exists: boolean, data?: Record<string, any>) => {
-      if (exists && data && typeof data.rate === 'number' && Number.isFinite(data.rate)) {
-        const rate = normalizeRate(data.rate);
+      if (exists && data) {
+        const rate =
+          typeof data.rate === 'number' && Number.isFinite(data.rate)
+            ? normalizeRate(data.rate)
+            : DEFAULT_COMMISSION_RATE;
+        const minComm = normalizeMinStandaloneCommission(data.min_standalone_commission_usd);
         setCommissionRate(rate);
         setCommissionInputPct(String(round2(rate * 100)));
+        setMinStandaloneCommission(minComm);
+        setMinCommissionInputUsd(minComm.toFixed(2));
         setCommissionDocExists(true);
         setCommissionMeta({
           updatedBy: data.updatedBy,
@@ -735,6 +758,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       } else {
         setCommissionRate(DEFAULT_COMMISSION_RATE);
         setCommissionInputPct(String(round2(DEFAULT_COMMISSION_RATE * 100)));
+        setMinStandaloneCommission(DEFAULT_MIN_STANDALONE_COMMISSION_USD);
+        setMinCommissionInputUsd(DEFAULT_MIN_STANDALONE_COMMISSION_USD.toFixed(2));
         setCommissionDocExists(false);
         setCommissionMeta(null);
       }
@@ -1022,8 +1047,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   const accruedCurrentMonthCommissions = useMemo(() => {
     const sum = accruedCurrentMonthOrders.reduce((acc, ord) => {
-      const base = getCommissionBase(ord);
-      return acc + calcCommission(base, commissionRate);
+      const bd = calcCommissionBreakdown(ord, commissionRate);
+      return acc + bd.comision_fixit;
     }, 0);
     return round2(sum);
   }, [accruedCurrentMonthOrders, commissionRate]);
@@ -1092,18 +1117,21 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         historico: { facturado: 0, comisiones: 0, neto: 0, count: 0 },
       };
 
-      const base = getCommissionBase(ord);
-      const com = calcCommission(base, commissionRate);
-      const net = calcNet(base, commissionRate);
+      const bd = calcCommissionBreakdown(ord, commissionRate);
+      const billed = round2(
+        Number(ord.total_facturado ?? ord.precio_regular ?? bd.base + bd.materiales_reembolso) || 0
+      );
+      const com = bd.comision_fixit;
+      const net = bd.costo_tecnico;
 
-      existing.historico.facturado = round2(existing.historico.facturado + base);
+      existing.historico.facturado = round2(existing.historico.facturado + billed);
       existing.historico.comisiones = round2(existing.historico.comisiones + com);
       existing.historico.neto = round2(existing.historico.neto + net);
       existing.historico.count += 1;
 
       const ordMonth = getOrderMonthPrefix(ord) || currentMonthPrefix;
       if (ordMonth === currentMonthPrefix) {
-        existing.mes.facturado = round2(existing.mes.facturado + base);
+        existing.mes.facturado = round2(existing.mes.facturado + billed);
         existing.mes.comisiones = round2(existing.mes.comisiones + com);
         existing.mes.neto = round2(existing.mes.neto + net);
         existing.mes.count += 1;
@@ -1601,29 +1629,139 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       return;
     }
 
+    const parsedMinUsd = parseFloat(minCommissionInputUsd.replace(',', '.'));
+    if (!Number.isFinite(parsedMinUsd) || parsedMinUsd < 0) {
+      showToast('Ingresa un piso mínimo de comisión válido ($0.00 o mayor).', 'error');
+      return;
+    }
+
     setIsSavingCommission(true);
     try {
       const nextRate = normalizeRate(round2(parsedPct) / 100);
+      const nextMinUsd = normalizeMinStandaloneCommission(parsedMinUsd);
       const nowIso = new Date().toISOString();
       const author = user?.displayName || user?.nombre || user?.email || 'Admin FIXIT';
 
       await setDoc(doc(db, 'settings', 'fixer_commission'), {
         rate: nextRate,
+        min_standalone_commission_usd: nextMinUsd,
         updatedBy: author,
         updatedAt: nowIso,
       });
 
       setCommissionRate(nextRate);
       setCommissionInputPct(String(round2(nextRate * 100)));
+      setMinStandaloneCommission(nextMinUsd);
+      setMinCommissionInputUsd(nextMinUsd.toFixed(2));
       setCommissionDocExists(true);
       setCommissionMeta({ updatedBy: author, updatedAt: nowIso });
       setIsEditingCommission(false);
-      showToast(`Comisión Fixit actualizada a ${round2(nextRate * 100)}%.`, 'success');
+      showToast(
+        `Comisión Fixit actualizada a ${round2(nextRate * 100)}% (piso mínimo $${nextMinUsd.toFixed(2)}).`,
+        'success'
+      );
     } catch (err: any) {
       console.error('[Admin] Error guardando tasa de comisión:', err);
       showToast(`Error al guardar tasa de comisión: ${err?.message || 'Error'}`, 'error');
     } finally {
       setIsSavingCommission(false);
+    }
+  };
+
+  const handleSetVisitOutcome = async (
+    ord: AdminOrder,
+    outcome: 'aprobada' | 'no_aprobada'
+  ) => {
+    setUpdatingVisitOutcomeId(ord.id);
+    try {
+      const nowIso = new Date().toISOString();
+      const author = user?.displayName || user?.nombre || user?.email || 'Admin FIXIT';
+      const code =
+        ord.numero_pedido ||
+        ord.consecutiveId ||
+        ord.orderNumber ||
+        ord.codigo_seguimiento ||
+        ord.id;
+
+      if (outcome === 'no_aprobada') {
+        const updates: Record<string, any> = {
+          visitOutcome: 'no_aprobada',
+          total_facturado: 25,
+          comision_fixit: 10,
+          costo_tecnico: 15,
+          updatedAt: nowIso,
+        };
+        await updateDoc(doc(db, 'requests', ord.id), updates);
+        try {
+          await updateDoc(doc(db, 'orders', ord.id), updates);
+        } catch {}
+
+        setOrders((prev) =>
+          prev.map((item) => (item.id === ord.id ? { ...item, ...updates } : item))
+        );
+        showToast(
+          `Visita ${code} marcada como No aprobada: split fijo $10.00 Fixit / $15.00 Fixer`,
+          'info'
+        );
+      } else {
+        const currentTotal = Number(ord.total_facturado ?? ord.precio_regular ?? 25) || 25;
+        const base = getCommissionBase({
+          ...ord,
+          visitOutcome: 'aprobada',
+          total_facturado: currentTotal,
+        });
+        const com = calcCommission(base, commissionRate);
+        const net = calcNet(base, commissionRate);
+
+        const updates: Record<string, any> = {
+          visitOutcome: 'aprobada',
+          estado_pago: 'Acreditado a trabajo',
+          comision_fixit: com,
+          costo_tecnico: net,
+          updatedAt: nowIso,
+        };
+        await updateDoc(doc(db, 'requests', ord.id), updates);
+        try {
+          await updateDoc(doc(db, 'orders', ord.id), updates);
+        } catch {}
+
+        const alreadyCredited = payments.some(
+          (p) =>
+            (p.solicitud_id === ord.id || p.solicitud_codigo === code) &&
+            Math.abs(Number(p.monto || 0) - 25) < 0.01 &&
+            String(p.notas || '').toLowerCase().includes('acreditad')
+        );
+
+        if (!alreadyCredited) {
+          const newPay = await recordPaymentInFirestore({
+            solicitud_id: ord.id,
+            solicitud_codigo: code,
+            cliente_nombre: ord.cliente?.nombre || 'Cliente FIXIT',
+            monto: 25,
+            metodo: 'Efectivo',
+            estado: 'Confirmado',
+            referencia_transaccion: `DIAG-CREDIT-${code}`,
+            referencia: `DIAG-CREDIT-${code}`,
+            fecha: nowIso.slice(0, 10),
+            usuario_registro: author,
+            notas: 'Visita técnica $25.00 acreditada a cuenta del trabajo aprobado',
+          });
+          setPayments((prev) => [newPay, ...prev]);
+        }
+
+        setOrders((prev) =>
+          prev.map((item) => (item.id === ord.id ? { ...item, ...updates } : item))
+        );
+        showToast(
+          `Visita ${code} marcada como Aprobada: $25.00 acreditados al trabajo (comisión 15/85 sobre total final).`,
+          'success'
+        );
+      }
+    } catch (err: any) {
+      console.error('[Admin] Error actualizando visitOutcome:', err);
+      showToast(`Error al actualizar visita: ${err?.message || 'Error'}`, 'error');
+    } finally {
+      setUpdatingVisitOutcomeId(null);
     }
   };
 
@@ -1666,7 +1804,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         telefono: newFixerPhone.trim(),
         especialidad: newFixerSpecialty,
         disponibilidad: 'Disponible',
-        calificacion: 5.0,
+        calificacion: null,
         trabajos_realizados: 0,
         zona_cobertura: newFixerZone.trim(),
         createdAt: serverTimestamp(),
@@ -1753,6 +1891,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   const handleCatalogServiceChange = (serviceId: string) => {
     setManualSelectedCatalogId(serviceId);
+    setManualApplyPromo(false);
     if (serviceId === 'custom') {
       setManualServiceName('');
       setManualAmount('35');
@@ -1763,6 +1902,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         setManualCategory(s.category);
         setManualAmount(String(s.price || 35));
       }
+    }
+  };
+
+  const handleToggleManualPromo = (applyPromo: boolean) => {
+    setManualApplyPromo(applyPromo);
+    const s = FIXIT_CATALOG.find((item) => item.id === manualSelectedCatalogId);
+    if (s) {
+      const nextPrice =
+        applyPromo && typeof s.promo_price_usd === 'number' ? s.promo_price_usd : s.price;
+      setManualAmount(String(nextPrice));
     }
   };
 
@@ -1781,6 +1930,33 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       return;
     }
 
+    const selectedCatalogService =
+      manualSelectedCatalogId && manualSelectedCatalogId !== 'custom'
+        ? FIXIT_CATALOG.find((s) => s.id === manualSelectedCatalogId)
+        : undefined;
+
+    if (selectedCatalogService?.addon_only) {
+      showToast('Agrega un servicio principal', 'error');
+      return;
+    }
+
+    const priceNum = parseFloat(manualAmount) || 0;
+    const embeddedMat =
+      selectedCatalogService?.embedded_material_usd &&
+      selectedCatalogService.embedded_material_usd > 0
+        ? round2(selectedCatalogService.embedded_material_usd)
+        : 0;
+    const laborBase = Math.max(0, round2(priceNum - embeddedMat));
+    const expectedComm = calcCommission(laborBase, commissionRate);
+
+    if (expectedComm < minStandaloneCommission) {
+      showToast(
+        `Comisión (${round2(commissionRate * 100)}% = $${expectedComm.toFixed(2)}) inferior al piso mínimo permitido ($${minStandaloneCommission.toFixed(2)}).`,
+        'error'
+      );
+      return;
+    }
+
     setSavingManualOrder(true);
     try {
       const monthlyConsecutive = await getNextMonthlyOrderNumber();
@@ -1788,17 +1964,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
       let serviceCategory = manualCategory;
       let serviceName = manualServiceName;
-      if (manualSelectedCatalogId && manualSelectedCatalogId !== 'custom') {
-        const catService = FIXIT_CATALOG.find((s) => s.id === manualSelectedCatalogId);
-        if (catService) {
-          serviceCategory = catService.category;
-          serviceName = catService.service_name;
-        }
+      if (selectedCatalogService) {
+        serviceCategory = selectedCatalogService.category;
+        serviceName = selectedCatalogService.service_name;
       }
 
       const selectedFixer = fixers.find((f) => f.id === manualFixerId);
-      const priceNum = parseFloat(manualAmount) || 35;
       const nowIso = new Date().toISOString();
+      const isDiagnosticOrder =
+        selectedCatalogService?.id === 'DIAG-001' ||
+        Boolean(selectedCatalogService?.diagnostic_required);
 
       const currentUid = auth.currentUser?.uid || user?.uid || 'admin_manual';
       const orderPayload: Record<string, any> = {
@@ -1818,15 +1993,19 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           service_name: serviceName.trim() || 'Servicio de Reparación',
           category: serviceCategory,
           price: priceNum,
+          embedded_material_usd: embeddedMat > 0 ? embeddedMat : undefined,
+          diagnostic_required: isDiagnosticOrder || undefined,
         },
         direccion: manualAddress.trim(),
         fecha: manualScheduledDate || nowIso,
         horario_preferido: manualScheduledDate ? `Agendado: ${manualScheduledDate}` : 'Hoy',
-        precio_regular: priceNum,
+        precio_regular: selectedCatalogService?.precio_regular ?? priceNum,
         total_facturado: priceNum,
         cotizacion: priceNum,
-        comision_fixit: calcCommission(priceNum, commissionRate),
-        costo_tecnico: calcNet(priceNum, commissionRate),
+        costo_materiales: embeddedMat > 0 ? embeddedMat : undefined,
+        visitOutcome: isDiagnosticOrder ? ('pendiente' as VisitOutcome) : undefined,
+        comision_fixit: expectedComm,
+        costo_tecnico: calcNet(laborBase, commissionRate),
         estado: manualInitialStatus,
         origen: 'ADMIN_MANUAL',
         tipo_propiedad: 'Residencial',
@@ -1862,6 +2041,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       setManualServiceName(FIXIT_CATALOG[0]?.service_name || '');
       setManualCategory(FIXIT_CATALOG[0]?.category || 'Reparaciones del hogar');
       setManualAmount(String(FIXIT_CATALOG[0]?.price || 35));
+      setManualApplyPromo(false);
       setManualAddress('');
       setManualFixerId('');
       setManualScheduledDate('');
@@ -2782,9 +2962,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     const consecutivo = ord.numero_pedido || ord.consecutiveId || ord.orderNumber || ord.codigo_seguimiento || 'FIX-PENDIENTE';
                     const officialStatus = normalizeStatus(ord.estado);
                     const isOfficialListed = ORDER_STATUS_OPTIONS.some((o) => o.value === officialStatus);
-                    const orderBase = getCommissionBase(ord);
-                    const orderCommission = calcCommission(orderBase, commissionRate);
-                    const orderNet = calcNet(orderBase, commissionRate);
+                    const ordBd = calcCommissionBreakdown(ord, commissionRate);
+                    const orderBilled = Number(ord.total_facturado ?? ord.precio_regular ?? ordBd.base) || 0;
+                    const isDiagOrder =
+                      ord.servicio_probable?.id === 'DIAG-001' ||
+                      Boolean(ord.servicio_probable?.diagnostic_required) ||
+                      /visita|diagn[oó]stico/i.test(ord.servicio_probable?.service_name || '');
                     return (
                       <tr key={ord.id} className="hover:bg-[#F6F4EF]/50 transition-colors">
                         <td className="py-3 px-4 font-mono font-bold text-[#082D60] whitespace-nowrap">
@@ -2797,15 +2980,66 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                         <td className="py-3 px-4">
                           <span className="font-medium text-[#1F2421] block">{ord.servicio_probable?.service_name || 'Reparaciones'}</span>
                           <span className="text-[11px] text-[#756A5D] truncate block max-w-xs">{ord.direccion || 'Panamá'}</span>
+                          {isDiagOrder && (
+                            <div className="flex items-center gap-1 mt-1 flex-wrap">
+                              <span className="text-[9px] font-bold uppercase text-[#756A5D]">
+                                Visita DIAG-001:
+                              </span>
+                              <button
+                                type="button"
+                                disabled={updatingVisitOutcomeId === ord.id}
+                                onClick={() => handleSetVisitOutcome(ord, 'aprobada')}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded border cursor-pointer transition-colors ${
+                                  ord.visitOutcome === 'aprobada'
+                                    ? 'bg-[#53653D] text-white border-[#53653D]'
+                                    : 'bg-[#FFFEFA] text-[#53653D] border-[#53653D]/40 hover:bg-[#53653D]/10'
+                                }`}
+                              >
+                                Aprobada
+                              </button>
+                              <button
+                                type="button"
+                                disabled={updatingVisitOutcomeId === ord.id}
+                                onClick={() => handleSetVisitOutcome(ord, 'no_aprobada')}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded border cursor-pointer transition-colors ${
+                                  ord.visitOutcome === 'no_aprobada'
+                                    ? 'bg-amber-600 text-white border-amber-700'
+                                    : 'bg-[#FFFEFA] text-amber-800 border-amber-300 hover:bg-amber-50'
+                                }`}
+                              >
+                                No aprobada
+                              </button>
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4 font-serif font-bold text-[#1F2421] whitespace-nowrap">
-                          ${orderBase.toFixed(2)} USD
+                          <span>${orderBilled.toFixed(2)} USD</span>
+                          {ordBd.materiales_reembolso > 0 && (
+                            <span className="block text-[10px] font-sans font-semibold text-[#0B72D9]">
+                              MO: ${ordBd.base.toFixed(2)} + Mat: ${ordBd.materiales_reembolso.toFixed(2)}
+                            </span>
+                          )}
+                          {ord.estado_pago === 'Acreditado a trabajo' && (
+                            <span className="block text-[9px] font-sans font-bold text-[#53653D]">
+                              $25.00 acreditados
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-3 font-mono font-bold text-[#082D60] whitespace-nowrap">
-                          ${orderCommission.toFixed(2)}
+                          <span>${ordBd.comision_fixit.toFixed(2)}</span>
+                          {ordBd.isVisitUnapproved && (
+                            <span className="block text-[9px] font-sans font-bold text-amber-700">
+                              Fijo $10/$15
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-3 font-mono font-bold text-[#53653D] whitespace-nowrap">
-                          ${orderNet.toFixed(2)}
+                          <span>${ordBd.costo_tecnico.toFixed(2)}</span>
+                          {ordBd.materiales_reembolso > 0 && (
+                            <span className="block text-[9px] font-sans font-semibold text-[#756A5D]">
+                              incl. +${ordBd.materiales_reembolso.toFixed(2)} mat. 0%
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-[#756A5D]">
                           {ord.tecnico_nombre || ord.tecnico_asignado ? (
@@ -2993,29 +3227,29 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Control de Tasa de Comisión Fixit (solo ADMIN) */}
+          {/* Control de Tasa de Comisión Fixit y Piso Mínimo (solo ADMIN) */}
           {isAdmin && (
             <div className="p-4 rounded-2xl bg-[#F6F4EF] border border-[#DED4C5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="space-y-1">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-[#082D60]">
                   <Percent className="w-4 h-4 text-[#0B72D9]" />
-                  <span>Tasa de Comisión Fixit (sobre mano de obra)</span>
+                  <span>Tasa de Comisión Fixit (sobre mano de obra) y Piso Mínimo</span>
                   {!commissionDocExists && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                      Default 15% activo
+                      Default 15% · Piso $3.00 activo
                     </span>
                   )}
                 </div>
                 <p className="text-[11px] text-[#756A5D]">
-                  Fixit cobra el 100% al cliente y liquida el neto al fixer (materiales desglosados excluidos). Guardado en <code>settings/fixer_commission</code>.
+                  Fixit cobra el 100% al cliente y liquida el neto residual al fixer (materiales 0% excluidos). Piso mínimo por servicio independiente: <strong>${minStandaloneCommission.toFixed(2)} USD</strong>. Guardado en <code>settings/fixer_commission</code>.
                   {commissionMeta?.updatedBy ? ` · Actualizado por ${commissionMeta.updatedBy}` : ''}
                 </p>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
                 {isEditingCommission ? (
-                  <form onSubmit={handleSaveCommissionRate} className="flex items-center gap-2">
-                    <div className="relative flex items-center">
+                  <form onSubmit={handleSaveCommissionRate} className="flex items-center gap-2 flex-wrap">
+                    <div className="relative flex items-center" title="Tasa de comisión (0-100%)">
                       <input
                         type="number"
                         min={0}
@@ -3023,9 +3257,20 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                         step="0.5"
                         value={commissionInputPct}
                         onChange={(e) => setCommissionInputPct(e.target.value)}
-                        className="w-24 pr-6 pl-3 py-1.5 rounded-xl bg-[#FFFEFA] border border-[#0B72D9] font-mono font-bold text-sm text-[#082D60] focus:outline-hidden"
+                        className="w-20 pr-6 pl-2.5 py-1.5 rounded-xl bg-[#FFFEFA] border border-[#0B72D9] font-mono font-bold text-sm text-[#082D60] focus:outline-hidden"
                       />
                       <span className="absolute right-2.5 text-xs font-bold text-[#756A5D]">%</span>
+                    </div>
+                    <div className="relative flex items-center" title="Comisión mínima por servicio independiente (USD)">
+                      <span className="absolute left-2.5 text-xs font-bold text-[#756A5D]">$</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        value={minCommissionInputUsd}
+                        onChange={(e) => setMinCommissionInputUsd(e.target.value)}
+                        className="w-20 pl-6 pr-2.5 py-1.5 rounded-xl bg-[#FFFEFA] border border-[#0B72D9] font-mono font-bold text-sm text-[#082D60] focus:outline-hidden"
+                      />
                     </div>
                     <button
                       type="submit"
@@ -3039,6 +3284,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                       onClick={() => {
                         setIsEditingCommission(false);
                         setCommissionInputPct(String(round2(commissionRate * 100)));
+                        setMinCommissionInputUsd(minStandaloneCommission.toFixed(2));
                       }}
                       className="py-1.5 px-2.5 rounded-xl border border-[#DED4C5] bg-[#FFFEFA] text-[#756A5D] hover:text-[#1F2421] font-bold text-xs cursor-pointer"
                     >
@@ -3048,18 +3294,19 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 ) : (
                   <>
                     <span className="font-mono font-bold text-sm px-3 py-1.5 rounded-xl bg-[#FFFEFA] border border-[#DED4C5] text-[#082D60]">
-                      {round2(commissionRate * 100)}%
+                      {round2(commissionRate * 100)}% · Mín ${minStandaloneCommission.toFixed(2)}
                     </span>
                     <button
                       type="button"
                       onClick={() => {
                         setCommissionInputPct(String(round2(commissionRate * 100)));
+                        setMinCommissionInputUsd(minStandaloneCommission.toFixed(2));
                         setIsEditingCommission(true);
                       }}
                       className="py-1.5 px-3 rounded-xl border border-[#DED4C5] bg-[#FFFEFA] hover:bg-[#DED4C5]/30 text-[#082D60] font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
-                      <span>Editar tasa (0-100%)</span>
+                      <span>Editar tasa / piso</span>
                     </button>
                   </>
                 )}
@@ -3465,9 +3712,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                   ) : (
                     filteredQuotes.map((quote) => {
                       const anticipo = quote.anticipo ?? Number(quote.total || 0) * 0.5;
-                      const quoteBase = getCommissionBase(quote);
-                      const quoteCommission = calcCommission(quoteBase, commissionRate);
-                      const quoteNet = calcNet(quoteBase, commissionRate);
+                      const qBd = calcCommissionBreakdown(quote, commissionRate);
                       const isLaborBase = isLaborCommissionBase(quote);
                       const cleanPhone = (quote.cliente_telefono || '').replace(/\D/g, '');
                       const waPhone = cleanPhone
@@ -3528,22 +3773,37 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                           <td className="py-3.5 px-3 whitespace-nowrap">
                             <div className="flex items-center gap-1">
                               <span className="font-mono font-bold text-xs text-[#082D60]">
-                                ${quoteCommission.toFixed(2)}
+                                ${qBd.comision_fixit.toFixed(2)}
                               </span>
                               {isLaborBase && (
                                 <span
-                                  title={`Calculada sobre mano de obra ($${quoteBase.toFixed(2)})`}
+                                  title={`Calculada sobre mano de obra ($${qBd.base.toFixed(2)})`}
                                   className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#0B72D9]/15 text-[#082D60] border border-[#0B72D9]/30"
                                 >
                                   s/MO
                                 </span>
                               )}
                             </div>
+                            {qBd.upsells_neto_fixit > 0 && (
+                              <span className="block text-[9px] font-semibold text-[#53653D]">
+                                incl. +${qBd.upsells_neto_fixit.toFixed(2)} extra
+                              </span>
+                            )}
                           </td>
                           <td className="py-3.5 px-3 whitespace-nowrap">
-                            <span className="font-mono font-bold text-xs text-[#53653D]">
-                              ${quoteNet.toFixed(2)}
+                            <span className="font-mono font-bold text-xs text-[#53653D] block">
+                              ${qBd.costo_tecnico.toFixed(2)}
                             </span>
+                            {qBd.materiales_reembolso > 0 && (
+                              <span className="block text-[9px] text-[#756A5D]">
+                                +${qBd.materiales_reembolso.toFixed(2)} mat. 0%
+                              </span>
+                            )}
+                            {qBd.upsells_bono_fixer > 0 && (
+                              <span className="block text-[9px] font-semibold text-[#53653D]">
+                                +${qBd.upsells_bono_fixer.toFixed(2)} bono extra
+                              </span>
+                            )}
                           </td>
                           <td className="py-3.5 px-4">
                             {(() => {
@@ -3955,12 +4215,102 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 <X className="w-5 h-5 text-[#756A5D]" />
               </button>
             </div>
-            <form onSubmit={handleCreateManualOrder} className="space-y-3 text-xs max-h-[60vh] overflow-y-auto">
+            <form onSubmit={handleCreateManualOrder} className="space-y-3 text-xs max-h-[65vh] overflow-y-auto pr-1">
+              <label className="block space-y-1">
+                <span className="text-[11px] font-bold text-[#1F2421]">Servicio de Catálogo</span>
+                <select
+                  value={manualSelectedCatalogId}
+                  onChange={(e) => handleCatalogServiceChange(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-semibold"
+                >
+                  {FIXIT_CATALOG.map((svc) => (
+                    <option key={svc.id} value={svc.id}>
+                      {svc.id} — {svc.service_name} (${svc.price.toFixed(2)}
+                      {svc.addon_only ? ' · Solo complemento' : ''})
+                    </option>
+                  ))}
+                  <option value="custom">Personalizado / Otro</option>
+                </select>
+              </label>
+
+              {(() => {
+                const selectedSvc = FIXIT_CATALOG.find((s) => s.id === manualSelectedCatalogId);
+                if (!selectedSvc) return null;
+
+                const priceVal = parseFloat(manualAmount) || 0;
+                const embeddedMat = selectedSvc.embedded_material_usd || 0;
+                const laborBase = Math.max(0, round2(priceVal - embeddedMat));
+                const commVal = calcCommission(laborBase, commissionRate);
+                const netVal = calcNet(laborBase, commissionRate);
+                const isBelowMinComm = !selectedSvc.addon_only && commVal < minStandaloneCommission;
+
+                return (
+                  <div className="space-y-2">
+                    {typeof selectedSvc.promo_price_usd === 'number' && (
+                      <label className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 font-bold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={manualApplyPromo}
+                          onChange={(e) => handleToggleManualPromo(e.target.checked)}
+                          className="rounded accent-[#082D60]"
+                        />
+                        <span>
+                          Aplicar {selectedSvc.promo_label || 'Promo'}: $
+                          {selectedSvc.promo_price_usd.toFixed(2)} USD (Lista: $
+                          {selectedSvc.price.toFixed(2)})
+                        </span>
+                      </label>
+                    )}
+
+                    {selectedSvc.addon_only && (
+                      <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-bold flex items-center gap-1.5">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>
+                          Agrega un servicio principal ({selectedSvc.id} es solo complemento y no puede crearse solo).
+                        </span>
+                      </div>
+                    )}
+
+                    {isBelowMinComm && (
+                      <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-bold flex items-center gap-1.5">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>
+                          Comisión (${commVal.toFixed(2)}) inferior al piso mínimo ($
+                          {minStandaloneCommission.toFixed(2)}).
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="p-2.5 rounded-xl bg-[#F6F4EF] border border-[#DED4C5] flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <span className="text-[#756A5D]">
+                        Base MO: <strong>${laborBase.toFixed(2)}</strong>
+                        {embeddedMat > 0 ? ` + Mat. 0%: $${embeddedMat.toFixed(2)}` : ''}
+                      </span>
+                      <span className="text-[#082D60] font-bold">
+                        Comisión ({round2(commissionRate * 100)}%): ${commVal.toFixed(2)}
+                      </span>
+                      <span className="text-[#53653D] font-bold">
+                        Neto Fixer: ${(netVal + embeddedMat).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <input type="text" required placeholder="Nombre Cliente" value={manualClientName} onChange={(e) => setManualClientName(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
               <input type="tel" required placeholder="Teléfono" value={manualClientPhone} onChange={(e) => setManualClientPhone(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
               <input type="text" required placeholder="Dirección" value={manualAddress} onChange={(e) => setManualAddress(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
-              <input type="number" required placeholder="Monto" value={manualAmount} onChange={(e) => setManualAmount(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF]" />
-              <button type="submit" className="w-full py-2.5 rounded-xl bg-[#082D60] text-white font-bold">Guardar Pedido</button>
+              <input type="number" step="0.01" required placeholder="Monto (USD)" value={manualAmount} onChange={(e) => setManualAmount(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#DED4C5] bg-[#F6F4EF] font-mono font-bold" />
+              <button
+                type="submit"
+                disabled={
+                  savingManualOrder ||
+                  Boolean(FIXIT_CATALOG.find((s) => s.id === manualSelectedCatalogId)?.addon_only)
+                }
+                className="w-full py-2.5 rounded-xl bg-[#082D60] hover:bg-[#062248] disabled:opacity-50 text-white font-bold cursor-pointer"
+              >
+                {savingManualOrder ? 'Guardando...' : 'Guardar Pedido'}
+              </button>
             </form>
           </div>
         </div>

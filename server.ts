@@ -227,35 +227,32 @@ app.post('/api/classify', async (req, res) => {
     const catalogDescription = `
 CATÁLOGO OFICIAL Y TARIFARIO DE PRECIOS FIXIT EN CIUDAD DE PANAMÁ:
 
+[DIAGNÓSTICO TÉCNICO]
+- DIAG-001: Visita Técnica / Inspección: $25.00 (100% deducible si el cliente aprueba la reparación)
+
 [CLIMATIZACIÓN - AIRES ACONDICIONADOS SPLIT]
 - AC-001: Mantenimiento Preventivo (1 Unidad): $30.00
-- AC-002: Mantenimiento Combo (2 Unidades): $55.00
+- AC-002: Mantenimiento Combo (2 Unidades): $60.00 (Promo Meta Ads: $55.00)
 - AC-003: Mantenimiento Combo (3 Unidades): $75.00
-- AC-004: Instalación Básica Residencial (incluye kit básico 3m): $70.00
-- AC-005: Instalación Básica (Edificio/Balcón): $85.00
+- AC-004: Instalación Básica Residencial (incluye kit básico 3m): $80.00
+- AC-005: Instalación Básica (Edificio/Balcón): $100.00
 - AC-006: Instalación por Manga (PH) (Solo mano de obra): $135.00
 - AC-007: Instalación por Manga (PH) (Completa con soldadura de plata, nitrógeno y vacío): $160.00
 - AC-008: Punto eléctrico adicional para A/C: $35.00
 
 [PLOMERÍA RESIDENCIAL]
-- PLO-001: Reemplazo simple de Lavamanos/Grifería: $40.00
-- PLO-002: Reemplazo de Fregador con sellado hermético: $50.00
-- PLO-003: Reemplazo de Ducha Eléctrica (Básica sobre niple): $35.00
-- PLO-003B: Ducha Eléctrica + Punto eléctrico nuevo desde tablero: $90.00
-- PLO-004: Destapar inodoro o fluxómetro: $60.00
-- PLO-004B: Instalación compleja (Mueble nuevo o modificación de tubería PVC): $60.00
-- PLO-005: Conexión punto de agua Icemaker / Nevera: $48.00
-- PLO-006: Instalación de Lavadora: $40.00
+- PLO-001: Reemplazo de Ducha Eléctrica (Básica sobre niple): $38.00
+- PLO-002: Ducha Eléctrica + Punto eléctrico desde tablero: $100.00
+- PLO-003: Reemplazo simple de Lavamanos/Grifería: $45.00
+- PLO-004: Reemplazo de Fregador con sellado hermético: $50.00
+- PLO-005: Instalación compleja (Mueble nuevo o modificación de tubería PVC): $60.00
+- PLO-006: Conexión punto de agua Icemaker / Nevera: $48.00
 - PLO-007: Instalación Secadora (Gas/Eléctrica + ducto): $68.00
-- PLO-011: Diagnóstico de inspección técnica: $25.00 (100% deducible si aprueba reparación)
 
 [ELECTRICIDAD MENOR]
-- ELE-001: Paquete Eléctrico Menor (Visita + cambio de hasta 3 tomas/switches): $38.00
-- ELE-001B: Punto adicional (a partir del 4to en la misma visita): $10.00 c/u
-- ELE-002: Instalación Switch Inteligente / Dimmer: $38.00
-- ELE-003: Instalación de lámpara o plafón: $30.00
-- ELE-004: Instalación de abanico de techo: $40.00
-- ELE-008: Punto eléctrico adicional para A/C: $35.00
+- ELE-001: Paquete Eléctrico Menor (Visita + cambio de hasta 3 tomas/switches): $40.00
+- ELE-002: Punto eléctrico adicional (a partir del 4to en la misma visita, solo complemento): $10.00 c/u
+- ELE-003: Instalación Switch Inteligente / Dimmer: $40.00
 
 REGLAS OPERATIVAS:
 - Anticipo obligatorio del 50% vía Yappy (6137-2394) o Banco General (04-72-98-545854-3, Virginia Palomino Hoyte) para agendar.

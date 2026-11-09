@@ -108,6 +108,7 @@ export const ServicePriceStep: React.FC<ServicePriceStepProps> = ({
   // Handle continue for AC Installation
   const handleContinueAC = () => {
     const requiresEvaluation = acInstallType === 'evaluation' || acNeedsElectrical || acHasHeightOver3m;
+    const baseAcPrice = service.price || 80;
     const acDetails: ACInstallationDetails = {
       isStandard: acInstallType === 'standard' && !acNeedsElectrical && !acHasHeightOver3m,
       pipeLengthMeters: 3,
@@ -116,15 +117,15 @@ export const ServicePriceStep: React.FC<ServicePriceStepProps> = ({
       needsElectricalPoint: acNeedsElectrical,
       needsDisassemblyOldUnit: acHasOldUnit,
       needsWallBrackets: acNeedsBrackets,
-      estimatedTotal: requiresEvaluation ? 25 : 90,
+      estimatedTotal: requiresEvaluation ? 25 : baseAcPrice,
       notes: requiresEvaluation 
         ? 'Requiere evaluación técnica por condiciones especiales (cableado, altura o desmonte).' 
-        : 'Instalación estándar residencial de 90 USD confirmada.',
+        : `Instalación estándar residencial de ${baseAcPrice} USD confirmada.`,
     };
 
     onContinue({
       acDetails,
-      adjustedPrice: requiresEvaluation ? 25 : 90,
+      adjustedPrice: requiresEvaluation ? 25 : baseAcPrice,
     });
   };
 
@@ -214,7 +215,7 @@ export const ServicePriceStep: React.FC<ServicePriceStepProps> = ({
         </div>
 
         {/* ========================================================== */}
-        {/* CASE 1: AIRE ACONDICIONADO - INSTALACIÓN BÁSICA $90.00     */}
+        {/* CASE 1: AIRE ACONDICIONADO - INSTALACIÓN BÁSICA            */}
         {/* ========================================================== */}
         {isACInstallation ? (
           <div className="space-y-4">
@@ -226,7 +227,7 @@ export const ServicePriceStep: React.FC<ServicePriceStepProps> = ({
               <div className="flex items-baseline justify-center gap-1.5 py-1">
                 <span className="text-xs font-semibold text-[#756A5D] uppercase">Desde</span>
                 <span className="font-serif font-bold text-4xl sm:text-5xl text-[#1F2421]">
-                  $90.00
+                  ${(service.price || 80).toFixed(2)}
                 </span>
                 <span className="text-sm font-semibold text-[#756A5D]">USD</span>
               </div>
@@ -235,14 +236,11 @@ export const ServicePriceStep: React.FC<ServicePriceStepProps> = ({
               </p>
             </div>
 
-            {/* MANDATORY NOTICE AS REQUESTED:
-                El precio de $90 debe aparecer como precio inicial y no debe interpretarse
-                como un precio que incluye cualquier tipo de instalación. */}
             <div className="bg-[#B98A43]/10 border border-[#B98A43]/30 rounded-2xl p-4 text-xs space-y-2 text-[#8C601E]">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0 text-[#B98A43] mt-0.5" />
                 <p className="leading-relaxed font-medium">
-                  <strong>Aclaración importante:</strong> El precio de <strong>$90.00</strong> es un precio base para instalación residencial sencilla en punto ya preparado. No debe interpretarse como una tarifa que incluye cualquier tipo o complejidad de instalación.
+                  <strong>Aclaración importante:</strong> El precio de <strong>${(service.price || 80).toFixed(2)}</strong> es un precio base para instalación residencial sencilla en punto ya preparado. No debe interpretarse como una tarifa que incluye cualquier tipo o complejidad de instalación.
                 </p>
               </div>
             </div>
@@ -254,7 +252,7 @@ export const ServicePriceStep: React.FC<ServicePriceStepProps> = ({
                 onClick={() => setShowACRulesDetail(!showACRulesDetail)}
                 className="w-full flex items-center justify-between text-xs font-bold text-[#1F2421] cursor-pointer"
               >
-                <span>Ver qué incluye y qué no incluye la tarifa de $90</span>
+                <span>Ver qué incluye y qué no incluye la tarifa de ${(service.price || 80).toFixed(2)}</span>
                 {showACRulesDetail ? (
                   <ChevronUp className="w-4 h-4 text-[#756A5D]" />
                 ) : (
@@ -267,7 +265,7 @@ export const ServicePriceStep: React.FC<ServicePriceStepProps> = ({
                 <div>
                   <span className="font-bold text-[#53653D] flex items-center gap-1.5 mb-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Incluido en la tarifa básica ($90):</span>
+                    <span>Incluido en la tarifa básica (${(service.price || 80).toFixed(2)}):</span>
                   </span>
                   <ul className="space-y-1 text-[#756A5D] pl-5 list-disc text-[11px]">
                     <li>Instalación de split de hasta 24,000 BTU en punto accesible</li>
@@ -315,7 +313,7 @@ export const ServicePriceStep: React.FC<ServicePriceStepProps> = ({
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-xs text-[#1F2421]">Instalación Estándar</span>
-                    <span className="font-serif font-bold text-sm text-[#0B72D9]">$90.00</span>
+                    <span className="font-serif font-bold text-sm text-[#0B72D9]">${(service.price || 80).toFixed(2)}</span>
                   </div>
                   <p className="text-[11px] text-[#756A5D]">
                     Punto preparado, hasta 3m de tubería, altura normal (&lt;3m).

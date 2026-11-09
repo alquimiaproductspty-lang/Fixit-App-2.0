@@ -182,12 +182,29 @@ export type QuoteStatus =
   | 'rechazada'
   | 'vencida';
 
+export type VisitOutcome = 'pendiente' | 'aprobada' | 'no_aprobada';
+
+export interface FixitUpsell {
+  id: string;
+  name: string;
+  description: string;
+  price_usd: number;
+  wholesale_cost_usd: number;
+  fixer_bonus_usd: number;
+  active: boolean;
+}
+
 export interface QuoteItem {
   id: string;
   descripcion: string;
   cantidad: number;
   precio_unitario: number;
   total: number;
+  kind?: 'labor' | 'material' | 'upsell';
+  service_id?: string;
+  upsell_id?: string;
+  addon_only?: boolean;
+  promo_applied?: boolean;
 }
 
 export interface ManagedQuote {
@@ -215,6 +232,10 @@ export interface ManagedQuote {
   anticipo?: number;
   comision_fixit?: number;
   costo_tecnico?: number;
+  upsells_total?: number;
+  upsells_costo_mayorista?: number;
+  upsells_bono_fixer?: number;
+  upsells_neto_fixit?: number;
   items?: QuoteItem[];
   cliente_uid?: string;
   tecnico_id?: string;
@@ -430,6 +451,12 @@ export interface Service {
   anticipo_requerido?: boolean;
   anticipo_notas?: string;
 
+  // Propiedades del Motor de Negocio Final
+  promo_price_usd?: number;
+  promo_label?: string;
+  addon_only?: boolean;
+  embedded_material_usd?: number;
+
   // Backwards compatibility aliases
   categoria: ServiceCategory;
   nombre: string;
@@ -538,6 +565,7 @@ export interface ServiceRequest {
   alerta_seguridad?: boolean;
 
   // New Comprehensive Business & Financial Attributes:
+  visitOutcome?: VisitOutcome;
   costo_inspeccion?: number; // Costo fijado por evaluación técnica ($15-$35)
   cotizacion?: number; // Valor de la cotización final aprobada
   total_facturado?: number; // Total cobrado al cliente
@@ -586,7 +614,7 @@ export interface Technician {
   status?: string;
   servicios_asignados?: number;
   servicios_completados?: number;
-  calificacion?: number;
+  calificacion?: number | null;
   trabajos_completados?: number;
   evaluacion_interna?: number; // 1 to 5 stars
   documentacion?: string; // e.g. "Idoneidad SPIA vigente, Cédula verificada"

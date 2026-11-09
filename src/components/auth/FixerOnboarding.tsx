@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { db, authService, AuthState, uploadFixerPhoto } from '../../lib/firebase';
 import { logAuditEvent, sanitizeForFirestore } from '../../lib/firestoreService';
@@ -58,7 +58,23 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
 
   const [step, setStep] = useState<1 | 2>(profileOnlyMode ? 2 : 1);
   const [inviteCode, setInviteCode] = useState('');
-  const [validatingCode, setValidatingCode] = useState(false);
+  const [remoteInviteCode, setRemoteInviteCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (profileOnlyMode) return;
+    let cancelled = false;
+    getDoc(doc(db, 'settings', 'fixer_invite'))
+      .then((snap) => {
+        if (!cancelled && snap.exists()) {
+          const code = String(snap.data()?.code || '').trim();
+          setRemoteInviteCode(code || null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [profileOnlyMode]);
 
   const [nombre, setNombre] = useState(
     currentUser?.displayName || currentUser?.nombre || ''
@@ -111,7 +127,7 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
     setPhotoPreview(objectUrl);
   };
 
-  const handleStep1Continue = (e: React.FormEvent) => {
+  const handleStep1Continue = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     const cleanCode = inviteCode.trim();
@@ -119,6 +135,26 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
       setErrorMsg('Ingresa tu código de invitación.');
       return;
     }
+
+    let expectedCode = remoteInviteCode;
+    if (!expectedCode) {
+      try {
+        const snap = await getDoc(doc(db, 'settings', 'fixer_invite'));
+        if (snap.exists()) {
+          expectedCode = String(snap.data()?.code || '').trim() || null;
+          setRemoteInviteCode(expectedCode);
+        }
+      } catch {
+        setErrorMsg('No se pudo verificar el código de invitación. Verifica tu conexión.');
+        return;
+      }
+    }
+
+    if (!expectedCode || cleanCode !== expectedCode) {
+      setErrorMsg('Código inválido, pídelo a tu supervisor');
+      return;
+    }
+
     setInviteCode(cleanCode);
     setStep(2);
   };
@@ -145,6 +181,13 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
     }
     if (!cleanTelefono) {
       setErrorMsg('El número de teléfono es obligatorio.');
+      return;
+    }
+    const phoneDigits = cleanTelefono.replace(/\D/g, '');
+    if (!/^[+\d\s-]+$/.test(cleanTelefono) || phoneDigits.length < 7) {
+      setErrorMsg(
+        'Ingresa un número de teléfono válido (al menos 7 dígitos; se permiten +, espacios y guiones).'
+      );
       return;
     }
     if (!cleanCedula) {
@@ -242,7 +285,7 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
         zona_cobertura: cleanZona,
         disponibilidad: 'Disponible' as const,
         activo: true,
-        calificacion: 5.0,
+        calificacion: null,
         trabajos_realizados: 0,
         createdAt: now,
         updatedAt: now,
@@ -271,7 +314,6 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
         {
           especialidad,
           zona_cobertura: cleanZona,
-          cedula: cleanCedula,
           idoneidad_tipo: idoneidadTipo,
           idoneidad_numero: cleanIdoneidadNum,
           modo: profileOnlyMode ? 'solo_perfil' : 'codigo_invitacion',
@@ -379,20 +421,11 @@ export const FixerOnboarding: React.FC<FixerOnboardingProps> = ({
 
             <button
               type="submit"
-              disabled={validatingCode || !inviteCode.trim()}
+              disabled={!inviteCode.trim()}
               className="w-full py-3.5 px-4 rounded-2xl bg-[#0B72D9] hover:bg-[#0962BC] disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition-all shadow-xs"
             >
-              {validatingCode ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Verificando código...</span>
-                </>
-              ) : (
-                <>
-                  <span>Continuar al Perfil</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
+              <span>Continuar al Perfil</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         )}

@@ -13,10 +13,15 @@ import {
 import { db, AuthState } from '../lib/firebase';
 import {
   DEFAULT_COMMISSION_RATE,
-  getCommissionBase,
+  DEFAULT_MIN_STANDALONE_COMMISSION_USD,
+  buildPaintingQuoterLines,
+  buildServiceQuoterLines,
   calcCommission,
+  calcCommissionBreakdown,
   calcNet,
+  getCommissionBase,
   isLaborCommissionBase,
+  normalizeMinStandaloneCommission,
   normalizeRate,
   round2,
 } from '../lib/commissions';
@@ -85,10 +90,14 @@ interface FixerOrder {
     nombre?: string;
     category?: string;
     price?: number;
+    embedded_material_usd?: number;
+    diagnostic_required?: boolean;
   };
   total_facturado?: number;
   cotizacion?: number;
   precio_regular?: number;
+  costo_materiales?: number;
+  visitOutcome?: 'pendiente' | 'aprobada' | 'no_aprobada';
   estado?: string;
   tecnico_id?: string;
   tecnico_asignado?: string;
@@ -159,8 +168,11 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
   // Quotes emitted
   const [quotes, setQuotes] = useState<ManagedQuote[]>([]);
 
-  // Commission rate from settings/fixer_commission (default 0.15 = 15%)
+  // Commission rate & min floor from settings/fixer_commission (default 0.15 = 15%, min $3.00)
   const [commissionRate, setCommissionRate] = useState<number>(DEFAULT_COMMISSION_RATE);
+  const [minStandaloneCommission, setMinStandaloneCommission] = useState<number>(
+    DEFAULT_MIN_STANDALONE_COMMISSION_USD
+  );
   const [usingDefaultCommission, setUsingDefaultCommission] = useState<boolean>(false);
 
   // Sound Alert State & Known Assigned Order IDs Ref (Uber-style foreground alert)
@@ -287,7 +299,7 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
     });
   }, []);
 
-  // Load Fixit commission rate from settings/fixer_commission (signed-in read, fallback 0.15)
+  // Load Fixit commission rate & minimum floor from settings/fixer_commission (signed-in read, fallback 0.15 / $3.00)
   useEffect(() => {
     let unsubCommission: (() => void) | null = null;
     const ref = doc(db, 'settings', 'fixer_commission');
@@ -299,6 +311,18 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
       } else {
         setCommissionRate(DEFAULT_COMMISSION_RATE);
         setUsingDefaultCommission(true);
+      }
+      if (
+        exists &&
+        data &&
+        typeof data.min_standalone_commission_usd === 'number' &&
+        Number.isFinite(data.min_standalone_commission_usd)
+      ) {
+        setMinStandaloneCommission(
+          normalizeMinStandaloneCommission(data.min_standalone_commission_usd)
+        );
+      } else {
+        setMinStandaloneCommission(DEFAULT_MIN_STANDALONE_COMMISSION_USD);
       }
     };
 
@@ -444,13 +468,11 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
       const ordMonth = getFixerOrderMonthPrefix(ord) || currentMonthPrefix;
       if (ordMonth !== currentMonthPrefix) return;
 
-      const base = getCommissionBase(ord);
-      const com = calcCommission(base, commissionRate);
-      const net = calcNet(base, commissionRate);
+      const breakdown = calcCommissionBreakdown(ord, commissionRate);
 
-      facturado = round2(facturado + base);
-      comision = round2(comision + com);
-      neto = round2(neto + net);
+      facturado = round2(facturado + breakdown.base);
+      comision = round2(comision + breakdown.comision_fixit);
+      neto = round2(neto + breakdown.costo_tecnico);
       count += 1;
     });
 
@@ -480,11 +502,15 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
     });
   }, [services, catalogCategory, catalogSearch]);
 
-  // Painting Calculator Computed Breakdown
+  // Painting Calculator Computed Breakdown:
+  // En pintura con materiales, la tarifa combinada ($3.50 int / $4.50 ext) se auto-divide en:
+  // - Mano de obra: (tarifa - $1.00) × m² ($2.50/m² int / $3.50/m² ext), con mínimo $75.00 aplicado a MO bruta antes de comisión
+  // - Materiales embebidos: $1.00/m² × m² (+ galones/insumos adicionales si aplica), reembolso 0% comisión.
+  // NUNCA redondear comisión ni neto por unidad ($/m²) para evitar el error acumulado de $0.01/m².
   const paintCalc = useMemo(() => {
     const m2 = Math.max(0, parseFloat(paintM2Input) || 0);
     const isWithMaterials = paintModality === 'mano_obra_materiales';
-    const ratePerM2 =
+    const combinedRatePerM2 =
       paintAreaType === 'interior'
         ? isWithMaterials
           ? 3.5
@@ -492,29 +518,35 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
         : isWithMaterials
         ? 4.5
         : 3.5;
+    const laborRatePerM2 = isWithMaterials ? round2(combinedRatePerM2 - 1.0) : combinedRatePerM2;
+    const embeddedMatPerM2 = isWithMaterials ? 1.0 : 0;
 
-    const rawLabor = Math.round(m2 * ratePerM2 * 100) / 100;
+    const rawLabor = round2(m2 * laborRatePerM2);
     const minCharge = 75;
     const minApplied = m2 > 0 && rawLabor < minCharge;
     const laborWithMin = m2 > 0 ? Math.max(rawLabor, minCharge) : 0;
 
+    const embeddedMaterialsTotal = isWithMaterials ? round2(m2 * embeddedMatPerM2) : 0;
     const gallonPrice = paintQuality === 'premium' ? 35 : 14;
     const gallons = isWithMaterials && m2 > 0 ? Math.ceil((m2 / 18) * 1.1) : 0;
     const paintCost = gallons * gallonPrice;
     const suppliesCost = isWithMaterials && m2 > 0 ? 15 : 0;
-    const materialsTotal = paintCost + suppliesCost;
+    const materialsTotal = round2(embeddedMaterialsTotal + paintCost + suppliesCost);
 
     const heightSurchargeAmount =
-      paintHeightSurcharge && m2 > 0 ? Math.round(laborWithMin * 0.15 * 100) / 100 : 0;
+      paintHeightSurcharge && m2 > 0 ? round2(laborWithMin * 0.15) : 0;
     const patchingAmount = paintPatchingRepair && m2 > 0 ? 20 : 0;
 
-    const grandTotal =
-      Math.round((laborWithMin + materialsTotal + heightSurchargeAmount + patchingAmount) * 100) / 100;
+    const grandTotal = round2(
+      laborWithMin + materialsTotal + heightSurchargeAmount + patchingAmount
+    );
 
     return {
       m2,
       isWithMaterials,
-      ratePerM2,
+      ratePerM2: laborRatePerM2,
+      combinedRatePerM2,
+      embeddedMaterialsTotal,
       rawLabor,
       minCharge,
       minApplied,
@@ -543,6 +575,7 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
       cliente_nombre: ord.cliente?.nombre || '',
       cliente_telefono: ord.cliente?.telefono || '',
       direccion: ord.direccion || 'Ciudad de Panamá',
+      servicio_id: ord.servicio_probable?.id,
       servicio_nombre: svcName,
       precio_sugerido: Number(price) || 0,
     });
@@ -572,41 +605,27 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
   };
 
   const handleAddServiceToQuoter = (srv: Service) => {
-    setPendingItemsToAdd([
-      {
-        id: Date.now() + Math.random(),
-        description: `${srv.service_name} (${srv.category})`,
-        qty: 1,
-        price: srv.price,
-      },
-    ]);
+    setPendingItemsToAdd(buildServiceQuoterLines(srv));
     setActiveTab('quoter');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleSendPaintingToQuoter = () => {
     if (paintCalc.m2 <= 0) return;
-    const areaLabel = paintAreaType === 'interior' ? 'Pintura Interior' : 'Pintura Exterior';
-    const newItems: QuoterLineItem[] = [
-      {
-        id: Date.now() + 1,
-        description: `${areaLabel} — Mano de obra (${paintCalc.m2} m² a $${paintCalc.ratePerM2.toFixed(2)}/m²${
-          paintCalc.minApplied ? ', tarifa mínima aplicada' : ''
-        })`,
-        qty: 1,
-        price: paintCalc.laborWithMin,
-      },
-    ];
+    const qualLabel = paintQuality === 'premium' ? 'Pintura Premium' : 'Pintura Estándar';
+    const extraPaintUsd = round2(paintCalc.paintCost + paintCalc.suppliesCost);
+    const extraPaintDesc =
+      paintCalc.isWithMaterials && extraPaintUsd > 0
+        ? `${paintCalc.gallons} gal. ${qualLabel} ($${paintCalc.gallonPrice}/gal) + protección y rodillos ($${paintCalc.suppliesCost})`
+        : undefined;
 
-    if (paintCalc.isWithMaterials) {
-      const qualLabel = paintQuality === 'premium' ? 'Pintura Premium' : 'Pintura Estándar';
-      newItems.push({
-        id: Date.now() + 2,
-        description: `Materiales e Insumos: ${paintCalc.gallons} gal. ${qualLabel} ($${paintCalc.gallonPrice}/gal) + protección y rodillos ($${paintCalc.suppliesCost})`,
-        qty: 1,
-        price: paintCalc.materialsTotal,
-      });
-    }
+    const newItems: QuoterLineItem[] = buildPaintingQuoterLines({
+      areaType: paintAreaType,
+      m2: paintCalc.m2,
+      withMaterials: paintCalc.isWithMaterials,
+      extraPaintMaterialsUsd: paintCalc.isWithMaterials ? extraPaintUsd : 0,
+      extraPaintMaterialsDesc: extraPaintDesc,
+    });
 
     if (paintHeightSurcharge && paintCalc.heightSurchargeAmount > 0) {
       newItems.push({
@@ -614,6 +633,7 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
         description: 'Recargo por trabajo en altura (> 3 metros, +15%)',
         qty: 1,
         price: paintCalc.heightSurchargeAmount,
+        kind: 'labor',
       });
     }
 
@@ -623,6 +643,7 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
         description: 'Resane puntual de grietas y huecos menores',
         qty: 1,
         price: paintCalc.patchingAmount,
+        kind: 'labor',
       });
     }
 
@@ -887,6 +908,8 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
             }}
             onOpenCatalog={() => setActiveTab('catalog')}
             onOpenCalculator={() => setActiveTab('calculators')}
+            commissionRate={commissionRate}
+            minStandaloneCommission={minStandaloneCommission}
           />
 
           {/* Historial de cotizaciones emitidas recientemente (Oculto al imprimir/exportar PDF) */}
@@ -903,9 +926,7 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
               <div className="divide-y divide-[#DED4C5]/60 text-xs">
                 {myQuotes.slice(0, 6).map((q) => {
                   const qTotal = Number(q.total || 0);
-                  const qBase = getCommissionBase(q);
-                  const qCom = calcCommission(qBase, commissionRate);
-                  const qNet = calcNet(qBase, commissionRate);
+                  const breakdown = calcCommissionBreakdown(q, commissionRate);
                   const isLaborOnly = isLaborCommissionBase(q);
                   return (
                     <div key={q.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -917,7 +938,17 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
                           </span>
                           {isLaborOnly && (
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#0B72D9]/15 text-[#082D60] border border-[#0B72D9]/30">
-                              s/MO (${qBase.toFixed(2)})
+                              s/MO (${breakdown.base.toFixed(2)})
+                            </span>
+                          )}
+                          {breakdown.materiales_reembolso > 0 && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 border border-sky-200">
+                              Mat. 0%: +${breakdown.materiales_reembolso.toFixed(2)}
+                            </span>
+                          )}
+                          {breakdown.upsells_bono_fixer > 0 && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">
+                              Bono extra: +${breakdown.upsells_bono_fixer.toFixed(2)}
                             </span>
                           )}
                         </div>
@@ -930,10 +961,10 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
                           Total cliente: <strong>${qTotal.toFixed(2)} USD</strong>
                         </span>
                         <span className="text-[11px] text-[#B98A43] block">
-                          Comisión ({commissionPctLabel}%): <strong>-${qCom.toFixed(2)} USD</strong>
+                          Comisión ({commissionPctLabel}%): <strong>-${breakdown.comision_fixit.toFixed(2)} USD</strong>
                         </span>
                         <span className="text-xs font-bold text-[#53653D] block">
-                          Tu neto: ${qNet.toFixed(2)} USD
+                          Tu neto: ${breakdown.costo_tecnico.toFixed(2)} USD
                         </span>
                       </div>
                     </div>
@@ -1021,9 +1052,16 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
                   ord.servicio_probable?.service_name ||
                   ord.servicio_probable?.nombre ||
                   'Servicio de Mantenimiento';
-                const price = getCommissionBase(ord) || 35;
-                const ordCommission = calcCommission(price, commissionRate);
-                const ordNet = calcNet(price, commissionRate);
+                const breakdown = calcCommissionBreakdown(ord, commissionRate);
+                const price =
+                  ord.total_facturado ??
+                  ord.cotizacion ??
+                  ord.precio_regular ??
+                  ord.servicio_probable?.price ??
+                  breakdown.base ??
+                  35;
+                const ordCommission = breakdown.comision_fixit;
+                const ordNet = breakdown.costo_tecnico;
 
                 return (
                   <div
@@ -1036,7 +1074,7 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
                   >
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono font-bold text-xs text-[#082D60] bg-[#082D60]/10 px-2.5 py-0.5 rounded-lg">
                             {consecutivo}
                           </span>
@@ -1051,6 +1089,11 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
                           ) : (
                             <span className="text-[10px] font-bold bg-[#53653D]/15 text-[#53653D] px-2 py-0.5 rounded-full">
                               Disponible
+                            </span>
+                          )}
+                          {breakdown.isVisitUnapproved && (
+                            <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                              Visita no aprobada ($10/$15)
                             </span>
                           )}
                         </div>
@@ -1068,13 +1111,18 @@ export const FixerDashboardView: React.FC<FixerDashboardViewProps> = ({ authStat
                         </div>
                         <div>
                           <span className="text-[10px] text-[#B98A43] block">
-                            Comisión ({commissionPctLabel}%)
+                            {breakdown.isVisitUnapproved ? 'Fixit (fijo)' : `Comisión (${commissionPctLabel}%)`}
                           </span>
                           <span className="font-bold text-[#B98A43]">-${ordCommission.toFixed(2)}</span>
                         </div>
                         <div>
                           <span className="text-[10px] text-[#53653D] block">Tu neto</span>
-                          <span className="font-bold text-[#53653D]">${ordNet.toFixed(2)}</span>
+                          <span className="font-bold text-[#53653D]">
+                            ${ordNet.toFixed(2)}
+                            {breakdown.materiales_reembolso > 0
+                              ? ` (+$${breakdown.materiales_reembolso.toFixed(2)} mat.)`
+                              : ''}
+                          </span>
                         </div>
                       </div>
 

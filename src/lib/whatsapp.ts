@@ -102,7 +102,7 @@ export function generateFixitWhatsAppMessage(params: FixitWhatsAppParams): strin
     } else {
       msg += `• Modalidad: *Instalación estándar residencial en punto preparado*\n`;
       msg += `• Incluye hasta 3m de tubería y vacío con bomba profesional\n`;
-      msg += `💵 *Tarifa acordada:* $90.00\n\n`;
+      msg += `💵 *Tarifa acordada:* $${price.toFixed(2)}\n\n`;
     }
   } else if (isDiagnostic) {
     msg += `💵 *Inspección / Diagnóstico:* $${price} (acreditable al trabajo final)\n\n`;
