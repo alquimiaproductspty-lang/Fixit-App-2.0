@@ -102,9 +102,14 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
   if (req.method === 'GET') {
     try {
       const mode = first(req.query?.['hub.mode']);
-      const token = first(req.query?.['hub.verify_token']);
+      const token = first(req.query?.['hub.verify_token']).trim();
       const challenge = first(req.query?.['hub.challenge']);
-      if (mode === 'subscribe' && challenge && token === reqEnvStrict('WHATSAPP_VERIFY_TOKEN')) {
+      const expected = reqEnvStrict('WHATSAPP_VERIFY_TOKEN');
+      // Diagnóstico sin secretos: longitudes y booleanos, nunca valores.
+      console.log(
+        `[wa-verify] mode=${mode} challengeLen=${challenge.length} tokenLen=${token.length} expectedLen=${expected.length} match=${mode === 'subscribe' && !!challenge && token === expected}`
+      );
+      if (mode === 'subscribe' && challenge && token === expected) {
         res.status(200).send(challenge);
         return;
       }
