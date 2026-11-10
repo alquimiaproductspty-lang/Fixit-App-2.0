@@ -2,8 +2,8 @@
 // Reglas de precio desde FIXIT_CATALOG (código); tunables en wa_config/fixit.
 // Fase 2: el catálogo también baja a Firestore por negocio.
 import { GoogleGenAI } from '@google/genai';
-import { FIXIT_CATALOG, FIXIT_UPSELLS } from '../../src/data/catalog';
-import { optEnv } from './env';
+import { FIXIT_CATALOG, FIXIT_UPSELLS } from '../../src/data/catalog.js';
+import { optEnv } from './env.js';
 import type { WaBotConfig, WaSession } from './store';
 
 export interface BrainResult {

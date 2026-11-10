@@ -1,7 +1,7 @@
 // Crea el pedido en Firestore cuando el cliente confirma por chat.
 // Espeja handleCreateManualOrder (mismo consecutivo atómico, mirror en orders).
-import { calcCommission, calcNet, round2 } from '../../src/lib/commissions';
-import { getDb } from './store';
+import { calcCommission, calcNet, round2 } from '../../src/lib/commissions.js';
+import { getDb } from './store.js';
 
 export interface BotQuote {
   service: string;

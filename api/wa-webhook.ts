@@ -3,9 +3,9 @@
 // POST → valida firma, corre el cerebro (reglas→Gemini→JSON), responde,
 //        crea pedido al confirmar, deriva a humano y alerta al dueño.
 // Colecciones nuevas (Admin SDK, sin reglas): wa_config, wa_sessions.
-import { think } from './_wa/brain';
-import { extractTextMessages, sendTextMessage, verifySignature } from './_wa/meta';
-import { createOrderFromBot } from './_wa/orders';
+import { think } from './_wa/brain.js';
+import { extractTextMessages, sendTextMessage, verifySignature } from './_wa/meta.js';
+import { createOrderFromBot } from './_wa/orders.js';
 import {
   freshSession,
   getBotConfig,
@@ -14,7 +14,7 @@ import {
   saveSession,
   type WaBotConfig,
   type WaSession,
-} from './_wa/store';
+} from './_wa/store.js';
 
 // Pide cuerpo crudo (Next/Vercel lo honra; si lo ignora, caemos a req.body).
 export const config = { api: { bodyParser: false } };

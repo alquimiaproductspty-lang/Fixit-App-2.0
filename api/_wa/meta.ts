@@ -1,7 +1,7 @@
 // Cliente mínimo de WhatsApp Cloud API (Meta Graph) + verificación de firma.
 // Docs: developers.facebook.com/docs/whatsapp/cloud-api
 import crypto from 'node:crypto';
-import { optEnv, reqEnv } from './env';
+import { optEnv, reqEnv } from './env.js';
 
 export interface WaTextMessage {
   from: string;
