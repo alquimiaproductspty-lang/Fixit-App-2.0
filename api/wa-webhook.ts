@@ -139,6 +139,7 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
 
     const payload = JSON.parse(raw.toString('utf8') || '{}') as unknown;
     const messages = extractTextMessages(payload);
+    console.log(`[wa] POST mensajes=${messages.length}`);
     const botConfig = await getBotConfig();
 
     const results: { to: string; action: string; ok: boolean; error?: string }[] = [];

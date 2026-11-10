@@ -53,13 +53,16 @@ export async function sendTextMessage(
         error?: { message?: string; code?: number };
       };
       if (!res.ok) {
+        console.error(`[wa] Envío a ${to} FALLÓ:`, res.status, data?.error?.message || data?.error?.code || '?');
         return { ok: false, error: `Meta ${res.status}: ${data?.error?.message || data?.error?.code || '?'}`.slice(0, 300) };
       }
+      console.log(`[wa] Envío a ${to}: ok`);
       return { ok: true, messageId: data?.messages?.[0]?.id };
     } finally {
       clearTimeout(timer);
     }
   } catch (e) {
+    console.error(`[wa] Envío a ${to} FALLÓ (red):`, e instanceof Error ? e.message : e);
     return { ok: false, error: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
   }
 }
