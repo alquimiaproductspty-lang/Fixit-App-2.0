@@ -264,18 +264,18 @@ export default function App() {
 
   // 5. Renderizar Consola Interna (CRM Admin o Vista Fixer)
   return (
-    <div className="min-h-screen bg-[#F6F4EF] text-[#1F2421] flex flex-col font-sans selection:bg-[#0B72D9]/15">
+    <div className={`min-h-screen flex flex-col font-sans ${showFixerView ? 'bg-[#0B0F17] text-[#F3F4F6] selection:bg-[#F59E0B]/30' : 'bg-[#F6F4EF] text-[#1F2421] selection:bg-[#0B72D9]/15'}`}>
       {/* Barra Superior Exclusiva para Equipo Interno */}
-      <header className="sticky top-0 z-40 bg-[#FFFEFA]/95 backdrop-blur-md border-b border-[#DED4C5] px-4 sm:px-6 py-2.5 no-print">
+      <header className={`sticky top-0 z-40 backdrop-blur-md border-b px-4 sm:px-6 py-2.5 no-print ${showFixerView ? 'bg-[#0B0F17]/95 border-[#1F2937]' : 'bg-[#FFFEFA]/95 border-[#DED4C5]'}`}>
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
           {/* Brand & Subdomain Badge */}
           <div className="flex items-center gap-3">
             <FixitLogo variant="compact" size={28} />
-            <div className="hidden sm:block border-l border-[#DED4C5] pl-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#082D60] block">
+            <div className={`hidden sm:block border-l pl-3 ${showFixerView ? 'border-[#1F2937]' : 'border-[#DED4C5]'}`}>
+              <span className={`text-[10px] font-bold uppercase tracking-wider block ${showFixerView ? 'text-[#FBBF24]' : 'text-[#082D60]'}`}>
                 {showFixerView ? 'Consola Técnica · Vista Fixer' : 'CRM & Control Operativo'}
               </span>
-              <span className="text-[11px] text-[#756A5D] font-mono">
+              <span className={`text-[11px] font-mono ${showFixerView ? 'text-[#9CA3AF]' : 'text-[#756A5D]'}`}>
                 admin.fixitpanama.com
               </span>
             </div>
@@ -290,7 +290,7 @@ export default function App() {
                 onClick={() => setAdminViewMode(showFixerView ? 'admin' : 'fixer')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${
                   showFixerView
-                    ? 'bg-[#082D60] text-white border-[#082D60] hover:bg-[#07244D]'
+                    ? 'bg-[#EA580C] text-white border-[#EA580C] hover:bg-[#C2410C]'
                     : 'bg-[#0B72D9]/10 text-[#0B72D9] border-[#0B72D9]/30 hover:bg-[#0B72D9]/20'
                 }`}
                 title={showFixerView ? 'Volver al panel administrativo CRM' : 'Abrir Vista Fixer y Cotizador Oficial 1:1'}
@@ -311,19 +311,23 @@ export default function App() {
             )}
 
             <div className="hidden md:flex flex-col text-right">
-              <span className="text-xs font-bold text-[#1F2421]">
+              <span className={`text-xs font-bold ${showFixerView ? 'text-[#F3F4F6]' : 'text-[#1F2421]'}`}>
                 {currentUser.displayName || currentUser.nombre || (isTechnician ? 'Técnico Fixer' : 'Administrador')}
               </span>
-              <span className="text-[10px] text-[#756A5D]">
+              <span className={`text-[10px] ${showFixerView ? 'text-[#9CA3AF]' : 'text-[#756A5D]'}`}>
                 {currentUser.email}
               </span>
             </div>
 
             <div
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
-                isTechnician
-                  ? 'bg-[#0B72D9]/10 border-[#0B72D9]/30 text-[#0B72D9]'
-                  : 'bg-[#53653D]/10 border-[#53653D]/30 text-[#53653D]'
+                showFixerView
+                  ? isTechnician
+                    ? 'bg-[#38BDF8]/15 border-[#38BDF8]/30 text-[#38BDF8]'
+                    : 'bg-[#34D399]/15 border-[#34D399]/30 text-[#34D399]'
+                  : isTechnician
+                    ? 'bg-[#0B72D9]/10 border-[#0B72D9]/30 text-[#0B72D9]'
+                    : 'bg-[#53653D]/10 border-[#53653D]/30 text-[#53653D]'
               }`}
             >
               {isTechnician ? <Wrench className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
@@ -333,7 +337,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => authService.signOut()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#DED4C5] hover:bg-[#DED4C5]/30 text-xs font-semibold text-[#756A5D] hover:text-red-700 transition-colors cursor-pointer ml-1"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ml-1 ${showFixerView ? 'border-[#1F2937] hover:bg-white/10 text-[#9CA3AF] hover:text-red-400' : 'border-[#DED4C5] hover:bg-[#DED4C5]/30 text-[#756A5D] hover:text-red-700'}`}
               title="Cerrar sesión de la consola"
               id="btn-crm-logout"
             >

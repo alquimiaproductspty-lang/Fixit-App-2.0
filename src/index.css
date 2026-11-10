@@ -601,7 +601,7 @@ body {
    Sigue marcada q-no-print, así que no sale en PDF ni impresión. */
 .fixit-quoter-sheet .q-actions-bar.quoter-actions-dock {
   position: sticky;
-  bottom: 0;
+  bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); /* despega la nav inferior fija */
   z-index: 30;
   background: #FFFEFA;
   border-radius: 0.75rem;
