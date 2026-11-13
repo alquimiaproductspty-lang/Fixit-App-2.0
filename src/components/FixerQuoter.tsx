@@ -914,17 +914,17 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
   return (
     <div className="space-y-4">
       {/* Banner de Pedido Vinculado o Accesos Rápidos de Apoyo (Oculto en PDF/Print) */}
-      <div className="max-w-[820px] mx-auto bg-[#111827]/85 border border-[#1F2937] rounded-2xl p-3.5 shadow-2xs space-y-3 q-no-print fixer-nav-chrome">
+      <div className="max-w-[820px] mx-auto bg-[#FFFEFA] border border-[#DED4C5] rounded-2xl p-3.5 shadow-2xs space-y-3 q-no-print fixer-nav-chrome">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
           <div className="flex items-center gap-2.5 flex-wrap">
             {linkedOrder ? (
-              <div className="inline-flex items-center gap-2 bg-[#EA580C]/10 border border-[#F59E0B]/20 text-[#FBBF24] px-3 py-1 rounded-xl text-xs font-bold">
+              <div className="inline-flex items-center gap-2 bg-[#082D60]/10 border border-[#082D60]/20 text-[#082D60] px-3 py-1 rounded-xl text-xs font-bold">
                 <span>🔗 Pedido vinculado: {linkedOrder.numero_pedido}</span>
                 {onClearLinkedOrder && (
                   <button
                     type="button"
                     onClick={onClearLinkedOrder}
-                    className="text-rose-400 hover:text-rose-300 font-extrabold ml-1 cursor-pointer"
+                    className="text-rose-600 hover:text-rose-800 font-extrabold ml-1 cursor-pointer"
                     title="Desvincular pedido"
                   >
                     ×
@@ -932,7 +932,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
                 )}
               </div>
             ) : (
-              <span className="text-xs font-semibold text-[#9CA3AF]">
+              <span className="text-xs font-semibold text-[#756A5D]">
                 💡 Cotización libre o vinculada a pedido asignado. Cada emisión se guarda en el CRM.
               </span>
             )}
@@ -943,7 +943,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
               <button
                 type="button"
                 onClick={onOpenCatalog}
-                className="py-1.5 px-3 rounded-xl bg-[#EA580C]/10 hover:bg-[#EA580C]/15 text-[#FBBF24] font-bold text-xs cursor-pointer transition-colors"
+                className="py-1.5 px-3 rounded-xl bg-[#082D60]/10 hover:bg-[#082D60]/15 text-[#082D60] font-bold text-xs cursor-pointer transition-colors"
               >
                 📋 + Tarifario Oficial
               </button>
@@ -952,7 +952,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
               <button
                 type="button"
                 onClick={onOpenCalculator}
-                className="py-1.5 px-3 rounded-xl bg-[#0284C7]/10 hover:bg-[#0284C7]/20 text-[#38BDF8] font-bold text-xs cursor-pointer transition-colors"
+                className="py-1.5 px-3 rounded-xl bg-[#0B72D9]/10 hover:bg-[#0B72D9]/20 text-[#0B72D9] font-bold text-xs cursor-pointer transition-colors"
               >
                 🎨 + Calculadora Pintura m²
               </button>
@@ -961,12 +961,12 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
         </div>
 
         {/* Mini-pestañas de herramientas internas (la hoja oficial debajo queda intacta) */}
-        <div className="flex items-center gap-1 p-1 bg-white/10 rounded-xl overflow-x-auto">
+        <div className="flex items-center gap-1 p-1 bg-[#DED4C5]/40 rounded-xl overflow-x-auto">
           <button
             type="button"
             onClick={() => setToolTab('build')}
             className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              toolTab === 'build' ? 'bg-[#EA580C] text-white shadow-xs' : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
+              toolTab === 'build' ? 'bg-[#EA580C] text-white shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
             }`}
           >
             Armar
@@ -975,12 +975,12 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
             type="button"
             onClick={() => setToolTab('extras')}
             className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center justify-center gap-1.5 ${
-              toolTab === 'extras' ? 'bg-[#EA580C] text-white shadow-xs' : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
+              toolTab === 'extras' ? 'bg-[#EA580C] text-white shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
             }`}
           >
             <span>Extras</span>
             {quoteFinancials.upsellsFixerBonus > 0 && (
-              <span className="px-1.5 py-0.5 rounded-md bg-emerald-600/15 text-emerald-300 text-[10px] font-extrabold">
+              <span className="px-1.5 py-0.5 rounded-md bg-emerald-600/15 text-emerald-800 text-[10px] font-extrabold">
                 +${quoteFinancials.upsellsFixerBonus.toFixed(2)}
               </span>
             )}
@@ -989,7 +989,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
             type="button"
             onClick={() => setToolTab('settlement')}
             className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              toolTab === 'settlement' ? 'bg-[#EA580C] text-white shadow-xs' : 'text-[#9CA3AF] hover:text-[#F3F4F6]'
+              toolTab === 'settlement' ? 'bg-[#EA580C] text-white shadow-xs' : 'text-[#756A5D] hover:text-[#1F2421]'
             }`}
           >
             {quoteFinancials.validationError ? '⚠️ Liquidación' : 'Liquidación'}
@@ -998,8 +998,8 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
 
         {/* Panel Armar: selector rápido del tarifario oficial */}
         {toolTab === 'build' && (
-          <div className="pt-2.5 border-t border-[#1F2937]/60 space-y-1">
-            <label className="text-[10px] font-bold text-[#9CA3AF] uppercase tracking-wider block">
+          <div className="pt-2.5 border-t border-[#DED4C5]/60 space-y-1">
+            <label className="text-[10px] font-bold text-[#756A5D] uppercase tracking-wider block">
               Agregar Servicio del Tarifario Oficial
             </label>
             <div className="flex items-center gap-1.5">
@@ -1010,7 +1010,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
                   setSelectedCatalogServiceId(val);
                   if (val) handleAddCatalogServiceById(val);
                 }}
-                className="w-full py-1.5 px-2.5 bg-white/5 border border-[#1F2937] rounded-xl text-xs font-medium text-[#F3F4F6] focus:outline-none focus:border-[#38BDF8]"
+                className="w-full py-1.5 px-2.5 bg-[#F6F4EF] border border-[#DED4C5] rounded-xl text-xs font-medium text-[#1F2421] focus:outline-none focus:border-[#0B72D9]"
               >
                 <option value="">Seleccionar servicio PVP...</option>
                 {FIXIT_CATALOG.filter((s) => s.active !== false).map((s) => (
@@ -1027,9 +1027,9 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
 
         {/* Panel Extras en sitio (upsells con bono directo al fixer) */}
         {toolTab === 'extras' && (
-          <div className="pt-2.5 border-t border-[#1F2937]/60 space-y-1">
+          <div className="pt-2.5 border-t border-[#DED4C5]/60 space-y-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-bold text-[#FBBF24] uppercase tracking-wider">
+              <span className="text-[10px] font-bold text-[#082D60] uppercase tracking-wider">
                 ⚡ Extras en sitio (Bono directo al Fixer · Cliente solo ve precio instalado)
               </span>
             </div>
@@ -1039,12 +1039,12 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
                   key={upsell.id}
                   type="button"
                   onClick={() => handleAddUpsell(upsell)}
-                  className="py-1.5 px-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-[#F3F4F6] text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                  className="py-1.5 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300/70 text-[#1F2421] text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
                   title={`${upsell.description} — Precio cliente $${upsell.price_usd.toFixed(2)} · Tu bono fijo: +$${upsell.fixer_bonus_usd.toFixed(2)}`}
                 >
                   <span>+ {upsell.name}</span>
-                  <span className="font-mono text-[#FBBF24]">${upsell.price_usd.toFixed(2)}</span>
-                  <span className="px-1.5 py-0.5 rounded-md bg-emerald-600/15 text-emerald-300 text-[10px] font-extrabold">
+                  <span className="font-mono text-[#082D60]">${upsell.price_usd.toFixed(2)}</span>
+                  <span className="px-1.5 py-0.5 rounded-md bg-emerald-600/15 text-emerald-800 text-[10px] font-extrabold">
                     Bono +${upsell.fixer_bonus_usd.toFixed(2)}
                   </span>
                 </button>
@@ -1055,18 +1055,18 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
 
         {/* Panel Liquidación: barra interna del fixer (NUNCA visible en PDF ni WhatsApp) */}
         {toolTab === 'settlement' && (
-        <div className="pt-2.5 border-t border-[#1F2937]/60 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="pt-2.5 border-t border-[#DED4C5]/60 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="px-2.5 py-1 rounded-lg bg-white/5 border border-[#1F2937] text-[#F3F4F6] font-semibold">
+            <span className="px-2.5 py-1 rounded-lg bg-[#F6F4EF] border border-[#DED4C5] text-[#1F2421] font-semibold">
               Base MO:{' '}
               <strong className="font-mono">
                 ${round2(Math.max(0, quoteFinancials.laborBase - totals.discountAmount)).toFixed(2)}
               </strong>
               {quoteFinancials.paintingMinApplied && (
-                <span className="ml-1 text-[10px] text-[#38BDF8] font-bold">(Mín. $75 MO)</span>
+                <span className="ml-1 text-[10px] text-[#0B72D9] font-bold">(Mín. $75 MO)</span>
               )}
             </span>
-            <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 font-semibold">
+            <span className="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 font-semibold">
               Comisión Fixit ({round2(commissionRate * 100)}% s/MO):{' '}
               <strong className="font-mono">
                 -$
@@ -1076,7 +1076,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
                 ).toFixed(2)}
               </strong>
             </span>
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-bold">
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold">
               Tu neto MO:{' '}
               <strong className="font-mono">
                 $
@@ -1087,13 +1087,13 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
               </strong>
             </span>
             {quoteFinancials.materialsReimbursement > 0 && (
-              <span className="px-2.5 py-1 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-300 font-semibold">
+              <span className="px-2.5 py-1 rounded-lg bg-sky-50 border border-sky-200 text-sky-900 font-semibold">
                 Materiales (0% com.):{' '}
                 <strong className="font-mono">+${quoteFinancials.materialsReimbursement.toFixed(2)}</strong>
               </span>
             )}
             {quoteFinancials.upsellsFixerBonus > 0 && (
-              <span className="px-2.5 py-1 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 font-bold">
+              <span className="px-2.5 py-1 rounded-lg bg-purple-50 border border-purple-200 text-purple-900 font-bold">
                 Bono extras en sitio:{' '}
                 <strong className="font-mono">+${quoteFinancials.upsellsFixerBonus.toFixed(2)}</strong>
               </span>
@@ -1101,7 +1101,7 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
           </div>
 
           {quoteFinancials.validationError && (
-            <div className="px-3 py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 font-bold text-xs flex items-center gap-1.5">
+            <div className="px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 font-bold text-xs flex items-center gap-1.5">
               <span>⚠️ {quoteFinancials.validationError}</span>
             </div>
           )}
@@ -1611,15 +1611,15 @@ Para separar y asegurar su cita es indispensable el pago del anticipo de $${tota
       {/* Modal de Fallback si el navegador bloquea el portapapeles */}
       {fallbackModalText && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 q-no-print">
-          <div className="bg-[#111827] border border-[#1F2937] rounded-2xl p-6 max-w-lg w-full space-y-3">
-            <h3 className="font-bold text-base text-[#F3F4F6]">Copiar Mensaje para WhatsApp</h3>
-            <p className="text-xs text-[#9CA3AF]">
+          <div className="bg-white rounded-2xl p-6 max-w-lg w-full space-y-3">
+            <h3 className="font-bold text-base text-[#0b2046]">Copiar Mensaje para WhatsApp</h3>
+            <p className="text-xs text-slate-500">
               Selecciona y copia el texto directamente:
             </p>
             <textarea
               readOnly
               value={fallbackModalText}
-              className="w-full h-48 text-xs p-2.5 border border-[#1F2937] bg-white/5 text-[#F3F4F6] rounded-lg font-mono"
+              className="w-full h-48 text-xs p-2.5 border border-slate-300 rounded-lg font-mono"
             />
             <button
               type="button"
